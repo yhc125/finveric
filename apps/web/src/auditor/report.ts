@@ -1,3 +1,4 @@
+import type { LedgerSnapshot } from "@finveric/core/ledger";
 // 감독기관 보고서. 브라우저가 지정 RPC에서 읽은 원장과 판매 건별 독립 검증 결과를 모은다.
 import {
   computeSignals,
@@ -21,8 +22,19 @@ import {
 } from "./format.ts";
 
 export const REPORT_FORMAT = "finveric-audit-report-v5";
-export type ReportScope =
-  { kind: "confirmed" } | { kind: "sale"; saleId: string };
+type ReportScope = { kind: "confirmed" } | { kind: "sale"; saleId: string };
+
+type DisputeComparison = {
+  mode: "ledger" | "seller" | "file";
+  receipt: boolean;
+  original: boolean;
+  notice?: string;
+  verifiedAt: string;
+  ledgerOnly: Pick<
+    SaleVerification,
+    "outcome" | "checks" | "references" | "verifiedAt"
+  >;
+};
 
 export type ReportSale = {
   saleId: string;
@@ -61,9 +73,10 @@ export type AuditReport = {
     latestBlock: string;
     ledgerCodeHash: string;
     verifierCodeHash: string;
-    sellerApi: false;
+    sellerApi: boolean;
   };
   scope: ReportScope;
+  comparison?: DisputeComparison;
   summary: {
     rules: number;
     productVersions: number;
@@ -101,44 +114,89 @@ export type AuditReport = {
 const iso = (seconds?: number) =>
   seconds ? new Date(seconds * 1000).toISOString() : undefined;
 
-/** 범위 안의 판매 건마다 verifySale을 실행해 보고서를 만든다. 원본 파일은 쓰지 않는다. */
+/** 가입 확정 건을 원장과 일괄 대조한다. */
 export async function buildReport(
   deployment: Deployment,
   { snapshot, verifySale }: LedgerVerification,
-  scope: ReportScope,
   progress: (done: number, total: number) => void,
 ): Promise<AuditReport> {
-  const targets =
-    scope.kind === "sale"
-      ? [scope.saleId]
-      : snapshot.sales
-          .filter((sale) => sale.status === "confirmed")
-          .map((sale) => sale.saleId);
+  const targets = snapshot.sales.filter((sale) => sale.status === "confirmed");
+  const results: SaleVerification[] = [];
+  progress(0, targets.length);
+  for (const sale of targets) {
+    results.push(
+      await verifySale(sale.saleId, undefined, undefined, "hapnida"),
+    );
+    progress(results.length, targets.length);
+  }
+  return assembleReport(deployment, snapshot, { kind: "confirmed" }, results);
+}
+
+/** 화면이 이미 대조한 결과로 파일을 만든다. 제출 파일 원문은 넣지 않는다. */
+export function buildDisputeReport(
+  deployment: Deployment,
+  snapshot: LedgerSnapshot,
+  primary: SaleVerification,
+  ledgerOnly: SaleVerification,
+  materials: Pick<
+    DisputeComparison,
+    "mode" | "receipt" | "original" | "notice"
+  >,
+): AuditReport {
+  return assembleReport(
+    deployment,
+    snapshot,
+    { kind: "sale", saleId: primary.saleId },
+    [primary],
+    {
+      ...materials,
+      verifiedAt: primary.verifiedAt,
+      ledgerOnly: {
+        outcome: ledgerOnly.outcome,
+        checks: ledgerOnly.checks,
+        references: ledgerOnly.references,
+        verifiedAt: ledgerOnly.verifiedAt,
+      },
+    },
+  );
+}
+
+export const reportFileName = (
+  report: AuditReport,
+  extension: "json" | "csv",
+) =>
+  `finveric-audit-report-${report.scope.kind === "sale" ? `sale-${report.scope.saleId}` : "confirmed"}-${report.generatedAt.replace(/[:.]/g, "-")}.${extension}`;
+
+function assembleReport(
+  deployment: Deployment,
+  snapshot: LedgerSnapshot,
+  scope: ReportScope,
+  results: SaleVerification[],
+  comparison?: DisputeComparison,
+): AuditReport {
   const allSignals = computeSignals(snapshot);
-  const scopedSale =
-    scope.kind === "sale"
-      ? snapshot.sales.find((entry) => entry.saleId === scope.saleId)
-      : undefined;
-  const scopedSignals =
-    scope.kind === "confirmed"
-      ? allSignals
-      : scopedSale
-        ? saleSignals(allSignals, scopedSale)
-        : [];
+  const targetIds = new Set(results.map((result) => result.saleId));
+  const targetCustomers = new Set(
+    results.flatMap((result) =>
+      result.sale ? [result.sale.customerRef.toLowerCase()] : [],
+    ),
+  );
+  const scopedSignals = allSignals.filter((signal) =>
+    signal.saleId
+      ? targetIds.has(signal.saleId)
+      : targetCustomers.has(signal.customerRef.toLowerCase()),
+  );
   const verified: Record<VerifyOutcome, number> = {
     match: 0,
     mismatch: 0,
     missing: 0,
   };
-  const sales: ReportSale[] = [];
-  progress(0, targets.length);
-  for (const [index, saleId] of targets.entries()) {
-    const result = await verifySale(saleId, undefined, undefined, "hapnida");
+  const sales: ReportSale[] = results.map((result) => {
     verified[result.outcome]++;
     const sale = result.sale;
     const product = sale && saleProduct(snapshot, sale);
-    sales.push({
-      saleId,
+    return {
+      saleId: result.saleId,
       customerRef: sale?.customerRef ?? "",
       product: sale
         ? productName(snapshot, sale.productId, sale.productVersion)
@@ -161,15 +219,14 @@ export async function buildReport(
       signals: sale
         ? [
             ...new Set(
-              saleSignals(allSignals, sale).map(
+              saleSignals(scopedSignals, sale).map(
                 (signal) => SIGNAL_LABELS[signal.kind],
               ),
             ),
           ]
         : [],
-    });
-    progress(index + 1, targets.length);
-  }
+    };
+  });
   const count = (status: "subscribed" | "confirmed" | "withdrawn") =>
     snapshot.sales.filter((sale) => sale.status === status).length;
   return {
@@ -187,9 +244,12 @@ export async function buildReport(
       latestBlock: snapshot.latestBlock.toString(),
       ledgerCodeHash: deployment.ledgerCodeHash,
       verifierCodeHash: deployment.verifierCodeHash,
-      sellerApi: false,
+      sellerApi:
+        comparison?.mode === "seller" &&
+        (comparison.receipt || comparison.original),
     },
     scope,
+    ...(comparison ? { comparison } : {}),
     summary: {
       rules: snapshot.rules.length,
       productVersions: snapshot.products.length,
@@ -270,6 +330,18 @@ export const CSV_COLUMNS = [
 
 /** 판매 건 한 줄씩. Excel이 한글을 읽도록 BOM을 붙인다. */
 export function reportCsv(report: AuditReport) {
+  const comparison = report.comparison;
+  const columns = comparison
+    ? [
+        ...CSV_COLUMNS,
+        "자료 선택",
+        "증명서 사용",
+        "원본 사용",
+        "원장만 대조한 결과",
+        "대조 시각",
+        "자료 안내",
+      ]
+    : CSV_COLUMNS;
   const rows = report.sales.map((sale) => [
     sale.saleId,
     sale.customerRef,
@@ -290,8 +362,20 @@ export function reportCsv(report: AuditReport) {
       .map((check) => check.name)
       .join("; "),
     sale.signals.join("; "),
+    ...(comparison
+      ? [
+          { ledger: "원장만", seller: "판매사 제출", file: "파일 선택" }[
+            comparison.mode
+          ],
+          comparison.receipt,
+          comparison.original,
+          OUTCOME_LABELS[comparison.ledgerOnly.outcome],
+          comparison.verifiedAt,
+          comparison.notice,
+        ]
+      : []),
   ]);
-  return `﻿${[CSV_COLUMNS, ...rows].map((row) => row.map(cell).join(",")).join("\r\n")}\r\n`;
+  return `﻿${[columns, ...rows].map((row) => row.map(cell).join(",")).join("\r\n")}\r\n`;
 }
 
 /** 문자열 파일을 내려받는다. JSON은 packages/ui의 saveFile을 쓴다. */

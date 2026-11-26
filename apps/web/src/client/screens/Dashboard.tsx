@@ -1,9 +1,5 @@
 import { Link } from "react-router";
-import type {
-  CustomerDto,
-  ProductEntryDto,
-  RuleEntryDto,
-} from "@finveric/core/api";
+import type { ProductEntryDto, RuleEntryDto } from "@finveric/core/api";
 import type { LoadState } from "../../shared/api.ts";
 import { Button } from "../../shared/button.tsx";
 import {
@@ -31,13 +27,14 @@ import {
 import {
   activeRule,
   awaitingApproval,
+  inCooling,
   latestProducts,
   nowSeconds,
   productName,
   saleProduct,
   type Sale,
 } from "../../shared/sales.ts";
-import { saleSignals } from "../signals.ts";
+import { REVIEW_SIGNALS_PATH } from "../paths.ts";
 
 const s = { ...ui, ...client, ...local };
 
@@ -47,7 +44,8 @@ export function Dashboard({
   rules,
   products,
   sales,
-  customer,
+  signalCount,
+  signalLoad,
   busy,
   register,
 }: {
@@ -55,18 +53,18 @@ export function Dashboard({
   rules: RuleEntryDto[];
   products: ProductEntryDto[];
   sales: Sale[];
-  customer?: CustomerDto;
+  signalCount?: number;
+  signalLoad: LoadState;
   busy: boolean;
   register: () => unknown;
 }) {
   const now = nowSeconds();
   const rule = activeRule(rules);
   const selling = latestProducts(products);
-  const drafts = sales.filter((sale) => sale.status === "draft");
   const subscribed = sales.filter((sale) => sale.status === "subscribed");
+  const cooling = subscribed.filter((sale) => inCooling(sale, now)).length;
   const confirmed = sales.filter((sale) => sale.status === "confirmed");
   const approvals = sales.filter(awaitingApproval);
-  const signals = saleSignals(customer, sales);
   const recent = [...sales]
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, 6);
@@ -76,12 +74,12 @@ export function Dashboard({
   const count = (value: number) => (failed ? "—" : value);
   const stats = [
     {
-      label: "진행 중인 가입",
-      value: count(drafts.length + subscribed.length),
+      label: "미확정 청약",
+      value: count(subscribed.length),
       unit: "건",
       note: failed
         ? "불러오지 못했습니다"
-        : `신청 ${drafts.length}건 · 숙려 중·확인 대기 ${subscribed.length}건`,
+        : `숙려 중 ${cooling}건 · 확인 대기 ${subscribed.length - cooling}건`,
       to: "/review",
     },
     {
@@ -94,15 +92,14 @@ export function Dashboard({
       label: "관리자 승인 대기",
       value: count(approvals.length),
       unit: "건",
-      note: "3회차 이상 진단한 고객의 신청",
-      to: "/review",
+      to: "/review?status=approval",
     },
     {
       label: "위험 신호",
-      value: count(signals.length),
+      value: signalCount ?? "—",
       unit: "건",
-      note: "원장 기록 기준",
-      to: "/signals",
+      note: signalLoad === "failed" ? "불러오지 못했습니다" : "원장 기록 기준",
+      to: REVIEW_SIGNALS_PATH,
     },
   ];
   return (
@@ -138,7 +135,7 @@ export function Dashboard({
                 <th scope="col">상태</th>
                 <th scope="col">회차</th>
                 <th scope="col">적합성</th>
-                <th scope="col">신청 시각</th>
+                <th scope="col">기록 시각</th>
                 <DetailColumn label="판매 건 상세" />
               </tr>
             </thead>
@@ -169,22 +166,21 @@ export function Dashboard({
                       <td>
                         <StatusBadge sale={sale} now={now} />
                       </td>
+                      <td>{attempt ? `${attempt}회차` : "—"}</td>
                       <td>
-                        {sale.status === "abandoned"
-                          ? "—"
-                          : attempt
-                            ? `${attempt}회차`
-                            : "진단 전"}
-                      </td>
-                      <td>
-                        {sale.status === "abandoned" ||
-                        sale.suitable === undefined
+                        {sale.suitable === undefined
                           ? "—"
                           : sale.suitable
                             ? "적합"
                             : "부적합"}
                       </td>
-                      <td>{dateTime(sale.createdAt)}</td>
+                      <td>
+                        {dateTime(
+                          sale.chain
+                            ? Number(sale.chain.subscribedAt)
+                            : sale.createdAt,
+                        )}
+                      </td>
                     </SaleRow>
                   );
                 })

@@ -304,3 +304,6 @@
     flex-wrap: wrap;
   }
 }
+.reviewModes {
+  margin-block-end: 20px;
+}

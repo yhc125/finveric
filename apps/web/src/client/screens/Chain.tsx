@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { useLocation } from "react-router";
+import type { ReactNode } from "react";
+import { Link, useSearchParams } from "react-router";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import type { Deployment } from "@finveric/core";
 import type { ProductEntryDto, TraceDto } from "@finveric/core/api";
@@ -17,6 +17,8 @@ import { dateTime, short } from "../../shared/format.ts";
 import ui from "../../shared/ui.module.css";
 import local from "./operations.module.css";
 import { productName, saleProduct, type Sale } from "../../shared/sales.ts";
+import { DetailHeading } from "../components.tsx";
+import { saleReviewPath } from "../paths.ts";
 import {
   ledgerRejection,
   receiptEvents,
@@ -60,40 +62,64 @@ export function Chain({
   busy: boolean;
   refresh: () => unknown;
 }) {
-  const location = useLocation();
-  const [group, setGroup] = useState<TraceGroup | "">("");
-  const [selected, setSelected] = useState(
-    new URLSearchParams(location.search).get("trace") ?? "",
+  const [params, setParams] = useSearchParams();
+  const saleId = params.get("sale") ?? "";
+  const group = saleId
+    ? ""
+    : (GROUPS.find((key) => key === params.get("group")) ?? "");
+  const selected = params.get("trace");
+  const shown = traces.filter((trace) =>
+    saleId ? trace.saleId === saleId : !group || traceGroup(trace) === group,
   );
-  const shown = traces.filter((trace) => !group || traceGroup(trace) === group);
   const log = shown.find((trace) => trace.id === selected) ?? shown.at(-1);
   const events = receiptEvents(log, deployment?.ledger);
   const eventNames = [...new Set(events.map((event) => event.eventName))];
   const sale = sales.find((entry) => entry.id === log?.saleId);
   const rejection = log && ledgerRejection(log);
   const proof = log && proofDetail(log);
+  const refreshButton = (
+    <Button variant="outline" busy={busy} onClick={refresh}>
+      {!busy && <RefreshCw size={16} aria-hidden="true" />}
+      새로 고침
+    </Button>
+  );
   return (
     <>
-      <Heading title="처리 기록">
-        <Button variant="outline" busy={busy} onClick={refresh}>
-          {!busy && <RefreshCw size={16} />}
-          새로 고침
-        </Button>
-      </Heading>
-      <div className={s.chips} role="group" aria-label="처리 기록 종류 필터">
-        {(["", ...GROUPS] as const).map((value) => (
-          <FilterChip
-            key={value || "all"}
-            label={value ? TRACE_GROUPS[value] : "전체"}
-            count={
-              traces.filter((trace) => !value || traceGroup(trace) === value)
-                .length
-            }
-            pressed={group === value}
-            onClick={() => setGroup(value)}
-          />
-        ))}
-      </div>
+      {saleId ? (
+        <DetailHeading
+          title="판매 건 처리 기록"
+          backTo={{
+            pathname: saleReviewPath(saleId),
+            search: params.get("from") ?? "",
+          }}
+          backLabel="판매 건 상세"
+        >
+          {refreshButton}
+          <Button variant="outline" asChild>
+            <Link to="/chain">전체 처리 기록</Link>
+          </Button>
+        </DetailHeading>
+      ) : (
+        <Heading title="처리 기록">{refreshButton}</Heading>
+      )}
+      {!saleId && (
+        <div className={s.chips} role="group" aria-label="처리 기록 종류 필터">
+          {(["", ...GROUPS] as const).map((value) => (
+            <FilterChip
+              key={value || "all"}
+              label={value ? TRACE_GROUPS[value] : "전체"}
+              count={
+                traces.filter((trace) => !value || traceGroup(trace) === value)
+                  .length
+              }
+              pressed={group === value}
+              onClick={() =>
+                setParams(value ? { group: value } : {}, { replace: true })
+              }
+            />
+          ))}
+        </div>
+      )}
       <div className={`${s.panel} ${s.logGrid}`}>
         <div className={s.logList}>
           {shown.length ? (
@@ -105,7 +131,16 @@ export function Chain({
               return (
                 <button
                   key={trace.id}
-                  onClick={() => setSelected(trace.id)}
+                  onClick={() =>
+                    setParams(
+                      (previous) => {
+                        const next = new URLSearchParams(previous);
+                        next.set("trace", trace.id);
+                        return next;
+                      },
+                      { replace: true },
+                    )
+                  }
                   className={log?.id === trace.id ? s.logSelected : ""}
                   aria-current={log?.id === trace.id ? "true" : undefined}
                 >
@@ -130,9 +165,11 @@ export function Chain({
                 ? "처리 기록을 불러오고 있습니다."
                 : load === "failed" && !traces.length
                   ? "처리 기록을 불러오지 못했습니다. 연결을 확인하고 화면을 새로 고치세요."
-                  : group
-                    ? `${TRACE_GROUPS[group]} 기록이 없습니다.`
-                    : "아직 처리 기록이 없습니다."}
+                  : saleId
+                    ? "이 판매 건에 남은 처리 기록이 없습니다."
+                    : group
+                      ? `${TRACE_GROUPS[group]} 기록이 없습니다.`
+                      : "아직 처리 기록이 없습니다."}
             </div>
           )}
         </div>

@@ -11,6 +11,8 @@ export const verifyPath = (saleId: string) =>
   `${channel.verify}?sale=${encodeURIComponent(saleId)}`;
 export const fundPath = (productId: string) =>
   `${channel.fund}?product=${productId}`;
+export const enrollPath = (productId: string, version: number) =>
+  `${channel.enroll}?${new URLSearchParams({ product: productId, version: String(version) })}`;
 /** 내 가입 기록에서 가입 건 하나를 연다. */
 export const recordPath = (saleId: string) =>
   `${channel.records}?sale=${encodeURIComponent(saleId)}`;

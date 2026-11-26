@@ -61,7 +61,8 @@ export function App() {
   // 이전 분쟁 조회 주소(/?sale=…, /?source=file)는 분쟁 조회로 보낸다.
   const legacy =
     location.pathname === "/" && (params.has("sale") || params.has("source"));
-  const path = legacy ? "/disputes" : location.pathname;
+  const legacyReport = location.pathname === "/report" && !!params.get("sale");
+  const path = legacy || legacyReport ? "/disputes" : location.pathname;
   const page = PAGES.find((entry) => matchPath(entry.path, path)) ?? PAGES[0];
   return (
     <Shell
@@ -109,7 +110,13 @@ export function App() {
         <Route path="/signals" element={<Signals ledger={ledger} />} />
         <Route
           path="/report"
-          element={<Report deployment={deployment} ledger={ledger} />}
+          element={
+            legacyReport ? (
+              <Navigate to={`/disputes${location.search}`} replace />
+            ) : (
+              <Report deployment={deployment} ledger={ledger} />
+            )
+          }
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

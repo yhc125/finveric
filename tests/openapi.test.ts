@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { PUBLIC_PATHS } from "../apps/api/src/app.ts";
 import { offlineApp } from "./offline-app.ts";
 import { responseChecker } from "./openapi-check.ts";
-import { OPERATIONS, TAGS } from "../apps/api/src/docs/operations.ts";
+import {
+  CHANNEL_TAG,
+  OPERATIONS,
+  TAGS,
+} from "../apps/api/src/docs/operations.ts";
 import {
   ERROR_CODES,
   ERROR_TYPES,
@@ -20,7 +24,8 @@ const HAEYO = /(어|아|에|해|예|워|돼|봐)요[.?!]|주세요/;
 test("검토 사유는 정해진 코드만 받고 기존 빈 승인 요청도 허용한다", async (t) => {
   const app = await offlineApp(t);
   const approveUrl = "/api/sales/1/action/approve";
-  const spec = (await app.inject({ url: "/api/openapi.json" })).json();
+  await app.ready();
+  const spec = app.internalSwagger() as any;
   assert.equal(
     spec.paths["/api/sales/{id}/action/approve"].post.requestBody.required,
     false,
@@ -86,12 +91,69 @@ function registeredRoutes(tree: string) {
   return routes;
 }
 
-test("OpenAPI 3.1 문서가 등록한 모든 경로를 분류와 operationId로 설명한다", async (t) => {
+test("공개 OpenAPI는 판매 채널 연동 경로와 API 키 인증만 설명한다", async (t) => {
   const app = await offlineApp(t);
   const response = await app.inject({ url: "/api/openapi.json" });
   assert.equal(response.statusCode, 200, response.body);
   assert.match(response.headers["content-type"] as string, /application\/json/);
   const spec = response.json();
+  assert.match(spec.openapi, /^3\.1\.\d+$/);
+  assert.match(spec.info.version, /^\d+\.\d+\.\d+$/);
+  assert.deepEqual(
+    spec.servers.map((server: { url: string }) => server.url),
+    ["https://finveric.vercel.app"],
+  );
+  assert.match(spec.info.description, /샌드박스/);
+  assert.match(spec.info.description, /연동 순서/);
+  assert.deepEqual(
+    spec.tags.map((tag: { name: string }) => tag.name),
+    [CHANNEL_TAG],
+  );
+  assert.deepEqual(Object.keys(spec.components.securitySchemes), ["apiKey"]);
+  const visible = Object.entries<Record<string, any>>(spec.paths).flatMap(
+    ([path, item]) =>
+      Object.entries(item).map(([method, operation]) => {
+        assert.deepEqual(operation.security, [{ apiKey: [] }]);
+        return `${method.toUpperCase()} ${path.replace(/\{(\w+)\}/g, ":$1")}`;
+      }),
+  );
+  assert.deepEqual(
+    visible.sort(),
+    [
+      "GET /api/rules",
+      "GET /api/products",
+      "GET /api/customers/:customerNo",
+      "POST /api/customers/:customerNo/diagnose",
+      "POST /api/sales",
+      "GET /api/sales/:id",
+      "POST /api/sales/:id/action/subscribe",
+      "POST /api/sales/:id/action/confirm",
+      "POST /api/sales/:id/action/withdraw",
+      "POST /api/sales/:id/action/abandon",
+      "GET /api/sales/:id/export/receipt",
+    ].sort(),
+  );
+  assert.doesNotMatch(
+    JSON.stringify(spec),
+    /approveSale|simulateTamper|listApiKeys|issueApiKey|revokeApiKey|SIGNALS_UNAVAILABLE|DEMO_SCOPE_DENIED|ACCESS_CODE_INVALID|STORE_LOCK|Upstash|Vercel|OriginalBundle|demoCustomer/,
+  );
+  const schemas = spec.components.schemas;
+  assert.equal(schemas.ApiKey, undefined);
+  assert.equal(schemas.ChainSale, undefined);
+  assert.equal(schemas.Trace, undefined);
+  for (const field of ["traces", "chain", "settled"])
+    assert.equal(schemas.ChannelSale.properties[field], undefined);
+  const receipt = spec.paths["/api/sales/{id}/export/receipt"].get;
+  assert.equal(
+    receipt.responses[200].content["application/json"].schema.$ref,
+    "#/components/schemas/EvidenceReceipt",
+  );
+});
+
+test("내부 OpenAPI가 등록한 모든 경로를 분류와 operationId로 설명한다", async (t) => {
+  const app = await offlineApp(t);
+  await app.ready();
+  const spec = app.internalSwagger() as any;
 
   assert.match(spec.openapi, /^3\.1\.\d+$/);
   assert.equal(spec.info.title, "FINVERIC API");
@@ -295,7 +357,8 @@ test("OpenAPI 3.1 문서가 등록한 모든 경로를 분류와 operationId로 
 
 test("성공 응답 예시는 응답 스키마와 맞고, 판매 건 예시는 설명에 적은 상태다", async (t) => {
   const app = await offlineApp(t);
-  const spec = (await app.inject({ url: "/api/openapi.json" })).json();
+  await app.ready();
+  const spec = app.internalSwagger() as any;
   const docs = responseChecker(spec);
   const sales: string[] = [];
   for (const [path, item] of Object.entries<any>(spec.paths))
@@ -325,7 +388,8 @@ test("성공 응답 예시는 응답 스키마와 맞고, 판매 건 예시는 �
 
 test("오류 code는 이름이 하나뿐이고, 공통 오류이거나 어떤 경로의 문서에 있다", async (t) => {
   const app = await offlineApp(t);
-  const spec = (await app.inject({ url: "/api/openapi.json" })).json();
+  await app.ready();
+  const spec = app.internalSwagger() as any;
   const codes = Object.keys(ERROR_CODES) as ErrorCode[];
   for (const code of codes)
     assert.match(code, /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/, code);
@@ -389,7 +453,7 @@ test("API 문서 화면은 외부 파일 없이 한 HTML로 열린다", async (t
   assert.match(page.body, /x-ledger-errors/);
   assert.match(page.body, /x-errors/);
   assert.match(page.body, /FINVERIC_API_KEY/);
-  assert.match(page.body, /FINVERIC_ACCESS_CODE/);
+  assert.doesNotMatch(page.body, /FINVERIC_ACCESS_CODE/);
 });
 
 test("접근 코드를 설정해도 상태 확인·설정·API 문서는 열리고 나머지는 401이다", async (t) => {

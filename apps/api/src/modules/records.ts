@@ -62,6 +62,7 @@ export async function publicSale(
     status,
     latestAttempt,
     approvalRequired: attempt >= 3,
+    ...(record.approvalRequested ? { approvalRequested: true } : {}),
     ...(record.approval ? { approvedAttempt: record.approval.attempt } : {}),
     ...(suitable === undefined ? {} : { suitable, protectedSale }),
     ...(subscribed && chain.protectedSale

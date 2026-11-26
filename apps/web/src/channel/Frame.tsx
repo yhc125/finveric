@@ -8,13 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useLocation } from "react-router";
-import {
-  BadgeCheck,
-  BriefcaseBusiness,
-  ChevronLeft,
-  FileText,
-  LayoutGrid,
-} from "lucide-react";
+import { BadgeCheck, ChevronLeft, FileText, LayoutGrid } from "lucide-react";
 import { Button } from "../shared/button.tsx";
 import { Badge, Notice, type Tone } from "../shared/components.tsx";
 import { focusPageTitle, useFocusRescue } from "../shared/focus.ts";
@@ -25,7 +19,6 @@ import { channel } from "./links.ts";
 
 const TABS = [
   { path: channel.catalog, label: "상품", icon: LayoutGrid },
-  { path: channel.enroll, label: "가입", icon: BriefcaseBusiness },
   { path: channel.records, label: "내 가입", icon: FileText },
   { path: channel.verify, label: "기록 확인", icon: BadgeCheck },
 ];
@@ -40,7 +33,11 @@ export const ErrorSlot = createContext<{
 
 /** 탭이 맡는 경로. 상품 상세는 상품 탭에 속한다. */
 const tabOf = (pathname: string) =>
-  pathname === channel.fund ? channel.catalog : pathname;
+  pathname === channel.fund
+    ? channel.catalog
+    : pathname === channel.enroll
+      ? channel.records
+      : pathname;
 
 /**
  * 증권사 앱의 틀. 최대 480px 한 열의 본문과 아래 탭 막대로 이뤄진다.

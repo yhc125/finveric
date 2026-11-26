@@ -68,9 +68,11 @@ export const limitRange = (limit?: number) =>
 /** 지금 시각(초). 원장 블록 시각과 비교한다. */
 export const nowSeconds = () => Math.floor(Date.now() / 1000);
 
-/** 관리자 승인을 기다리는 신청: 최신 회차가 3 이상이고 그 회차의 승인 서명이 없다. */
+/** 고객이 승인을 요청했거나 재승인이 필요한 신청이다. */
 export const awaitingApproval = (sale: Sale) =>
   sale.status === "draft" &&
+  !sale.submissionPending &&
+  (sale.approvalRequested || sale.approvedAttempt !== undefined) &&
   sale.approvalRequired &&
   sale.approvedAttempt !== sale.latestAttempt;
 /** 숙려 중: 녹취·숙려 대상 청약이고 최종 확인 가능 시각 전이다. */
@@ -82,24 +84,28 @@ export const inCooling = (sale: Sale, now: number) =>
 export type StatusKey =
   | "draft"
   | "approval"
+  | "approved"
+  | "receiptPending"
   | "abandoned"
   | "subscribed"
   | "cooling"
   | "confirmed"
   | "withdrawn";
 /** 필터 순서는 시간 순서다. 숙려 대상은 숙려 중을 지나 확인 대기가 된다. */
-export const STATUS_KEYS: StatusKey[] = [
-  "draft",
+export const WORK_STATUS_KEYS = [
   "approval",
+  "approved",
+  "receiptPending",
   "cooling",
   "subscribed",
   "confirmed",
   "withdrawn",
-  "abandoned",
-];
+] as const satisfies readonly StatusKey[];
 export const STATUS_LABELS: Readonly<Record<StatusKey, string>> = {
   draft: "신청",
   approval: "승인 대기",
+  approved: "승인 완료",
+  receiptPending: "영수증 대기",
   abandoned: "중단",
   // 청약을 원장에 기록했고 고객의 최종 확인을 기다린다. 청약은 행동 이름이라 상태 이름으로 쓰지 않는다.
   subscribed: "확인 대기",
@@ -108,12 +114,13 @@ export const STATUS_LABELS: Readonly<Record<StatusKey, string>> = {
   withdrawn: "철회",
 };
 /**
- * 판매 상태마다 다른 색이다. 진행 순서로 신청(파랑) → 승인 대기(주황, 직원이 처리할 일) → 숙려 중(청록) → 확인 대기(보라)
- * → 확정(초록), 끝난 반대 결과는 철회(빨강), 청약 전에 멈춘 건은 중단(회색)이다. 이웃한 상태는 색상이 겹치지 않는다.
+ * 승인 대기는 주황, 숙려 중은 청록, 확인 대기는 보라, 확정은 초록, 철회는 빨강이다.
  */
 export const STATUS_TONES: Readonly<Record<StatusKey, Tone>> = {
   draft: "info",
   approval: "warning",
+  approved: "neutral",
+  receiptPending: "info",
   abandoned: "neutral",
   subscribed: "subscribed",
   cooling: "cooling",
@@ -122,7 +129,11 @@ export const STATUS_TONES: Readonly<Record<StatusKey, Tone>> = {
 };
 /** 화면에 쓰는 판매 건 상태. 원장 상태에 승인 대기와 숙려 중을 더한다. */
 export function statusKey(sale: Sale, now: number): StatusKey {
+  if (sale.status === "draft" && sale.submissionPending)
+    return "receiptPending";
   if (awaitingApproval(sale)) return "approval";
+  if (sale.status === "draft" && sale.approvedAttempt !== undefined)
+    return "approved";
   if (inCooling(sale, now)) return "cooling";
   return sale.status;
 }

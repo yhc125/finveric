@@ -30,6 +30,10 @@ import { prove } from "../apps/api/src/gateways/proofs.ts";
 import { verifySale } from "@finveric/core/verify";
 import { readLedger } from "@finveric/core/ledger";
 import {
+  buildDisputeReport,
+  reportCsv,
+} from "../apps/web/src/auditor/report.ts";
+import {
   DEMO_CUSTOMER_NO,
   DEMO_PRODUCTS,
   DEMO_RULE,
@@ -177,10 +181,9 @@ test(
     await service.initialize();
     const app = await createApp(service);
     t.after(() => app.close());
-    // 모든 응답을 API 문서(/api/openapi.json)의 응답 스키마와 대조한다.
-    const documented = responseChecker(
-      (await app.inject({ url: "/api/openapi.json" })).json(),
-    );
+    // 공개 연동 경로와 콘솔 내부 경로를 모두 내부 계약과 대조한다.
+    await app.ready();
+    const documented = responseChecker(app.internalSwagger());
     const call = async (path: string, body?: object) => {
       const method = body === undefined ? "GET" : "POST";
       const response = await app.inject({
@@ -356,6 +359,13 @@ test(
           },
         });
         assert.equal(entry.product.version, 2);
+        const salesBefore = (await request<SaleDto[]>("/sales")).length;
+        await reject("/sales", 409, "PRODUCT_VERSION_CHANGED", {
+          productId: fund.id,
+          customerNo: CUSTOMER,
+          expectedVersion: 1,
+        });
+        assert.equal((await request<SaleDto[]>("/sales")).length, salesBefore);
         await reject("/products", 409, "PRODUCT_EDIT_VERSION_CHANGED", {
           document: fund.document,
           expectedVersion: 1,
@@ -493,6 +503,12 @@ test(
         assert.equal(draft.status, "draft");
         assert.equal(draft.customerRef, ref);
         assert.equal(draft.latestAttempt, 0);
+        await reject("/sales", 409, "DIAGNOSIS_REQUIRED", {
+          productId: els.id,
+          customerNo: CUSTOMER,
+          intent: "subscribe",
+        });
+        assert.deepEqual(await request("/sales?scope=work"), []);
         const subscribeBody = {
           explanationSeconds: 60,
           higherRiskConfirmed: true,
@@ -512,6 +528,11 @@ test(
         firstTx = first.txHash;
         gas.recordDiagnosis = await gasOf(first.txHash);
         // 3회차 미만이면 관리자 승인 대상이 아니다.
+        await reject("/sales", 409, "APPROVAL_NOT_NEEDED", {
+          productId: els.id,
+          customerNo: CUSTOMER,
+          intent: "requestApproval",
+        });
         await reject(
           `/sales/${draft.id}/action/approve`,
           409,
@@ -544,6 +565,22 @@ test(
           },
         );
         const third = await diagnose(ANSWERS[2]);
+        // 진단 회차가 늘어도 기존 초안은 승인 대기가 되지 않는다.
+        assert.deepEqual(await request("/sales?scope=work"), []);
+        const approvalRequest = await request<SaleDto>("/sales", {
+          productId: els.id,
+          customerNo: CUSTOMER,
+          expectedVersion: 1,
+          intent: "requestApproval",
+        });
+        assert.equal(approvalRequest.approvalRequested, true);
+        const work = await request<SaleDto[]>("/sales?scope=work");
+        assert.deepEqual(
+          work.map((sale) => sale.id),
+          [approvalRequest.id],
+        );
+        await action(approvalRequest.id, "abandon");
+        assert.deepEqual(await request("/sales?scope=work"), []);
         assert.equal(
           service.repository.diagnoses(ref).find((d) => d.attempt === 2)
             ?.reassessmentReason,
@@ -750,6 +787,12 @@ test(
         );
         assert.equal(approved.approvalRequired, true);
         assert.equal(approved.approvedAttempt, 3);
+        assert.deepEqual(
+          (await request<SaleDto[]>("/sales?scope=work")).map(
+            (sale) => sale.id,
+          ),
+          [saleId],
+        );
         assert.match(
           await reject(
             `/sales/${saleId}/action/subscribe`,
@@ -967,10 +1010,30 @@ test(
             result.checks.filter((c) => !c.ok).map((c) => c.name),
             [name],
           );
+          return result;
         };
         const answer = structuredClone(original);
         answer.attempts[1].answers[0] = 1;
-        await failing("원본 답변 대조", receipt, answer);
+        const mismatch = await failing("원본 답변 대조", receipt, answer);
+        const [ledgerOnly, snapshot] = await Promise.all([
+          verifySale(dep, saleId),
+          readLedger(dep, client),
+        ]);
+        const report = buildDisputeReport(dep, snapshot, mismatch, ledgerOnly, {
+          mode: "file",
+          receipt: true,
+          original: true,
+        });
+        assert.equal(report.comparison?.ledgerOnly.outcome, "match");
+        assert.equal(report.comparison?.verifiedAt, mismatch.verifiedAt);
+        assert.equal(report.sales[0].outcome, "mismatch");
+        assert.deepEqual(report.sales[0].checks, mismatch.checks);
+        assert.equal(report.source.sellerApi, false);
+        assert.doesNotMatch(
+          JSON.stringify(report),
+          /"(answers|salt|recording)"/,
+        );
+        assert.match(reportCsv(report), /불일치,원본 답변 대조/);
         const document = structuredClone(original);
         document.productDocument.cards[0].text =
           document.productDocument.cards[0].text.replace("50%", "5%");
@@ -1015,6 +1078,22 @@ test(
       assert.deepEqual(kinds("unsuitable"), [saleId]);
       assert.deepEqual(kinds("shortExplanation"), [bondId]);
       assert.ok(signals.every((s) => s.customerRef === ref));
+      assert.deepEqual(await request("/signals"), signals);
+
+      // 기본 고객과 판매 건이 없는 다른 고객도 함께 집계한다.
+      const anotherRef = customerRefFor(env.customerRefSecret, "C-0003");
+      for (const answers of ANSWERS.slice(0, 2))
+        await request("/customers/C-0003/diagnose", { answers });
+      const all = await request<typeof signals>("/signals");
+      assert.ok(all.some((signal) => signal.customerRef === ref));
+      assert.ok(
+        all.some(
+          (signal) =>
+            signal.customerRef === anotherRef &&
+            signal.kind === "shortInterval" &&
+            signal.saleId === undefined,
+        ),
+      );
     });
 
     await t.test(
@@ -1049,12 +1128,46 @@ test(
           .flatMap((item) => Object.values<any>(item))
           .filter((op) => op.tags[0] === "판매 채널 연동")
           .map((op) => `${op.operationId} 200`);
-        assert.ok(channel.length >= 12, channel.join(", "));
+        assert.equal(channel.length, 11, channel.join(", "));
         const missing = channel.filter((key) => !documented.covered.has(key));
         assert.deepEqual(missing, [], "대조하지 않은 판매 채널 연동 응답");
         // 오류 응답도 문서의 형식과 같다.
         for (const key of ["diagnoseCustomer 400", "subscribeSale 409"])
           assert.ok(documented.covered.has(key), key);
+
+        const { key } = await request<{ key: string }>("/keys", {
+          name: "판매 채널 계약 검사",
+        });
+        const channelDocs = responseChecker(spec);
+        const headers = { authorization: `Bearer ${key}` };
+        for (const path of [
+          `/api/sales/${saleId}`,
+          `/api/sales/${saleId}/export/receipt`,
+        ]) {
+          const response = await app.inject({ url: path, headers });
+          assert.equal(response.statusCode, 200);
+          channelDocs.check("GET", path, 200, response.json());
+        }
+        const opened = await app.inject({
+          method: "POST",
+          url: "/api/sales",
+          headers,
+          payload: {
+            productId: els.id,
+            customerNo: CUSTOMER,
+            intent: "requestApproval",
+          },
+        });
+        assert.equal(opened.statusCode, 200);
+        channelDocs.check("POST", "/api/sales", 200, opened.json());
+        const cancelPath = `/api/sales/${opened.json().id}/action/abandon`;
+        const cancelled = await app.inject({
+          method: "POST",
+          url: cancelPath,
+          headers,
+        });
+        assert.equal(cancelled.statusCode, 200);
+        channelDocs.check("POST", cancelPath, 200, cancelled.json());
       },
     );
 

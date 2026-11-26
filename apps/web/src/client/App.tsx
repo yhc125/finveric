@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, matchPath, Route, Routes, useLocation } from "react-router";
+import {
+  Link,
+  matchPath,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router";
 import {
   Activity,
   BookOpen,
@@ -8,7 +15,6 @@ import {
   Layers,
   LayoutDashboard,
   ListChecks,
-  Siren,
   Smartphone,
 } from "lucide-react";
 import type {
@@ -21,6 +27,7 @@ import type {
   RuleEntryDto,
   SaleAction,
   SaleDto,
+  SignalDto,
   TraceDto,
 } from "@finveric/core/api";
 import { Button } from "../shared/button.tsx";
@@ -38,6 +45,7 @@ import { Shell, type ExternalItem, type NavGroup } from "../shared/Shell.tsx";
 import {
   PRODUCT_DETAIL_ROUTE,
   PRODUCT_LIST_PATH,
+  REVIEW_SIGNALS_PATH,
   SALE_DETAIL_ROUTE,
 } from "./paths.ts";
 import { ApiKeys } from "./screens/ApiKeys.tsx";
@@ -47,7 +55,6 @@ import { Products } from "./screens/Products.tsx";
 import { Review } from "./screens/Review.tsx";
 import { Rules } from "./screens/Rules.tsx";
 import { SaleDetail } from "./screens/SaleDetail.tsx";
-import { Signals } from "./screens/Signals.tsx";
 
 const OPERATIONS = "판매사 업무";
 /**
@@ -67,7 +74,11 @@ const groups: NavGroup[] = [
         end: false,
       },
       { path: "/review", label: "판매·검토", icon: Layers, end: false },
-      { path: "/signals", label: "위험 신호", icon: Siren },
+    ],
+  },
+  {
+    label: "운영",
+    items: [
       { path: "/chain", label: "처리 기록", icon: Activity },
       { path: "/keys", label: "API 키", icon: KeyRound },
     ],
@@ -78,9 +89,11 @@ const links: ExternalItem[] = [
   { href: CHANNEL_APP_HREF, label: CHANNEL_APP_LABEL, icon: Smartphone },
   { href: API_DOCS_HREF, label: "API 문서", icon: BookOpen },
 ];
-function pageTitle(pathname: string) {
+function pageTitle(pathname: string, search: string) {
   if (matchPath(SALE_DETAIL_ROUTE, pathname)) return "판매 건 상세";
   if (matchPath(PRODUCT_DETAIL_ROUTE, pathname)) return "판매 상품 상세";
+  if (pathname === "/chain" && new URLSearchParams(search).get("sale"))
+    return "판매 건 처리 기록";
   for (const group of groups)
     for (const item of group.items)
       if (matchPath(item.path, pathname)) return item.label;
@@ -142,8 +155,15 @@ export function App() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [traces, setTraces] = useState<TraceDto[]>([]);
   const [customer, setCustomer] = useState<CustomerDto>();
+  const [signals, setSignals] = useState<SignalDto[]>([]);
+  const [signalLoad, setSignalLoad] = useState<LoadState>("loading");
+  const signalRequest = useRef<Promise<void>>(undefined);
   const [apiKeys, setApiKeys] = useState<ApiKeyDto[]>([]);
   const [load, setLoad] = useState<LoadState>("loading");
+  const showSignals =
+    location.pathname === "/" ||
+    (location.pathname === "/review" &&
+      new URLSearchParams(location.search).get("view") === "signals");
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   /** 서버가 접근 코드를 거절했을 때 입력 칸 아래에 보여 줄 문장. */
@@ -167,7 +187,7 @@ export function App() {
       await Promise.all([
         api<RuleEntryDto[]>("/rules"),
         api<ProductEntryDto[]>("/products"),
-        api<SaleDto[]>("/sales"),
+        api<SaleDto[]>("/sales?scope=work"),
         api<TraceDto[]>("/traces"),
         api<CustomerDto>(
           `/customers/${encodeURIComponent(current.demoCustomer.number)}`,
@@ -187,6 +207,29 @@ export function App() {
   }, []);
   /** 화면을 막지 않고 다시 읽는다. */
   const refresh = useCallback(() => reload().catch(() => undefined), [reload]);
+  const refreshSignals = useCallback(() => {
+    if (signalRequest.current) return signalRequest.current;
+    setSignalLoad("loading");
+    signalRequest.current = api<SignalDto[]>("/signals")
+      .then(
+        (next) => {
+          setSignals(next);
+          setSignalLoad("ready");
+        },
+        () => setSignalLoad("failed"),
+      )
+      .finally(() => {
+        signalRequest.current = undefined;
+      });
+    return signalRequest.current;
+  }, []);
+  useEffect(() => {
+    if (!showSignals || load !== "ready") return;
+    void refreshSignals();
+    const onFocus = () => void refreshSignals();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [load, showSignals, refreshSignals]);
   useEffect(() => {
     reload().catch((e: Error) => {
       // 접근 코드를 아직 넣지 않았으면 오류가 아니다. 입력 칸만 보여 준다.
@@ -236,6 +279,7 @@ export function App() {
     try {
       const result = await operation?.();
       await reload();
+      if (showSignals) void refreshSignals();
       setAccessError("");
       if (done) setNotice(done);
       return result;
@@ -275,7 +319,7 @@ export function App() {
       groups={groups}
       links={links}
       app="판매사 콘솔"
-      title={pageTitle(location.pathname)}
+      title={pageTitle(location.pathname, location.search)}
       headingTools={
         <Badge tone={deployment ? "success" : "warning"}>
           {networkName(deployment)}
@@ -301,7 +345,8 @@ export function App() {
               rules={rules}
               products={products}
               sales={sales}
-              customer={customer}
+              signalCount={signalLoad === "ready" ? signals.length : undefined}
+              signalLoad={signalLoad}
               busy={!!busy}
               register={register}
             />
@@ -336,7 +381,16 @@ export function App() {
         />
         <Route
           path="/review"
-          element={<Review load={load} sales={sales} products={products} />}
+          element={
+            <Review
+              load={load}
+              sales={sales}
+              products={products}
+              signals={signals}
+              signalLoad={load === "ready" ? signalLoad : load}
+              refreshSignals={load === "ready" ? refreshSignals : refresh}
+            />
+          }
         />
         <Route
           path={SALE_DETAIL_ROUTE}
@@ -353,14 +407,7 @@ export function App() {
         />
         <Route
           path="/signals"
-          element={
-            <Signals
-              load={load}
-              sales={sales}
-              products={products}
-              customer={customer}
-            />
-          }
+          element={<Navigate to={REVIEW_SIGNALS_PATH} replace />}
         />
         <Route
           path="/chain"

@@ -47,6 +47,8 @@ import { dateTime } from "../../shared/format.ts";
 import ui from "../../shared/ui.module.css";
 import local from "../auditor.module.css";
 import { LedgerGate } from "../components.tsx";
+import { buildDisputeReport } from "../report.ts";
+import { ReportDownloads } from "../ReportDownloads.tsx";
 import { SelectField } from "../../shared/SelectField.tsx";
 import {
   customerPath,
@@ -653,13 +655,16 @@ function SaleSummary({
           </div>
         );
       })}
-      {sale && (
-        <Button variant="outline" asChild>
-          <Link to={`/report?sale=${encodeURIComponent(primary.saleId)}`}>
-            이 판매 건으로 보고서 만들기
-          </Link>
-        </Button>
-      )}
+      <ReportDownloads
+        getReport={() =>
+          buildDisputeReport(result.deployment, snapshot, primary, ledgerOnly, {
+            mode: result.source,
+            receipt: result.hasReceipt,
+            original: result.hasOriginal,
+            notice: result.sellerError,
+          })
+        }
+      />
     </>
   );
 }

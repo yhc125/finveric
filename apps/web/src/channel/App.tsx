@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Link,
   matchPath,
+  Navigate,
   Route,
   Routes,
   useLocation,
   useNavigate,
 } from "react-router";
-import { CUSTOMER_LEDGER_ERRORS } from "@finveric/core";
+import { CUSTOMER_LEDGER_ERRORS, type Product } from "@finveric/core";
 import { DEMO_SESSION_PREFIX } from "@finveric/core/api";
 import type {
   ConfigDto,
@@ -34,15 +35,15 @@ import { DEPLOYMENT_ERROR, useDeploymentConfig } from "../shared/deployment.ts";
 import { networkName } from "../shared/format.ts";
 import { findProduct, latestProducts, type Sale } from "../shared/sales.ts";
 import { Frame } from "./Frame.tsx";
-import { channel, fundPath } from "./links.ts";
+import { channel, enrollPath, fundPath } from "./links.ts";
 import { Catalog } from "./screens/Catalog.tsx";
 import { CustomerVerify } from "./screens/CustomerVerify.tsx";
 import { Enrollment } from "./screens/Enrollment.tsx";
 import { ProductDetail } from "./screens/ProductDetail.tsx";
 import { Records } from "./screens/Records.tsx";
 
-/** 진행 중인 가입 신청 번호. 탭마다 따로 보관한다. */
-const DRAFT_KEY = "finveric-draft";
+/** 고객이 청약 또는 관리자 승인을 요청한 신청 번호. */
+const DRAFT_KEY = "finveric-enrollment-sale";
 const SESSION_KEY = "finveric-channel-session";
 
 function publicChannelApi<T>(path: string, body?: unknown) {
@@ -280,47 +281,88 @@ export function App() {
     if (id) sessionStorage.setItem(DRAFT_KEY, id);
     else sessionStorage.removeItem(DRAFT_KEY);
   };
-  const draft = sales.find((sale) => sale.id === draftId);
+  const ownSales = sales.filter(
+    (sale) => sale.customerRef.toLowerCase() === customer?.ref.toLowerCase(),
+  );
+  const draft = ownSales.find((sale) => sale.id === draftId);
+  const ongoing = ownSales.filter(
+    (sale) =>
+      sale.status === "subscribed" ||
+      (sale.status === "draft" &&
+        (sale.approvalRequested ||
+          sale.submissionPending ||
+          sale.approvedAttempt !== undefined)),
+  );
   const activeDraft =
-    draft && (draft.status === "draft" || draft.status === "subscribed")
+    ongoing.find((sale) => sale.id === draftId) ??
+    ongoing.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const preparing = params.has("product");
+  const preparation = preparing
+    ? findProduct(
+        products,
+        params.get("product") ?? "",
+        Number(params.get("version")),
+      )
+    : undefined;
+  const matchingDraft =
+    draft?.productId === preparation?.id &&
+    draft?.productVersion === preparation?.version
       ? draft
       : undefined;
+  const enrollment = preparing ? matchingDraft : (draft ?? activeDraft);
+  const resume = (id: string) => {
+    setDraft(id);
+    navigate(channel.enroll);
+  };
   /**
    * 상품의 가입에 들어간다. 같은 상품의 가입이 진행 중이면 그 단계로 돌아간다.
    * 다른 상품의 청약 전 가입은 replace일 때만 중단한다(화면이 먼저 묻는다). 청약한 가입은 내 가입 기록에 남는다.
    */
   const start = (productId: string, replace = false) => {
     if (activeDraft?.productId.toLowerCase() === productId.toLowerCase())
-      return navigate(channel.enroll);
-    return run("가입 신청을 준비하고 있어요", async () => {
-      if (activeDraft?.status === "draft") {
-        if (!replace)
-          throw new Error(
-            "작성 중인 가입을 마치거나 중단한 뒤 새로 시작해 주세요.",
-          );
+      return resume(activeDraft.id);
+    const product = findProduct(products, productId);
+    if (!product) return;
+    const prepare = () => {
+      setDraft("");
+      navigate(enrollPath(product.id, product.version));
+    };
+    if (activeDraft?.status === "draft" && replace)
+      return run("가입을 중단하고 있어요", async () => {
         await request<SaleDto>(`/sales/${activeDraft.id}/action/abandon`, {});
-      }
-      if (!config) throw new Error("설정을 불러온 뒤 다시 시도해 주세요.");
-      const sale = await request<SaleDto>("/sales", {
-        productId: productId as `0x${string}`,
-        customerNo: config.demoCustomer.number,
-      } satisfies OpenSaleRequest);
-      setDraft(sale.id);
-      return sale;
-    }).then((sale) => {
-      // 새 판매 건을 다시 읽은 뒤에 옮긴다. 가입 화면이 "진행 중인 가입이 없어요"를 잠깐 보였다가 바뀌지 않는다.
-      if (sale) navigate(channel.enroll);
-    });
+        return true;
+      }).then((stopped) => {
+        if (stopped) prepare();
+      });
+    if (activeDraft?.status !== "draft") prepare();
+  };
+  const openSale = async (
+    product: Product,
+    intent: NonNullable<OpenSaleRequest["intent"]>,
+  ) => {
+    if (!customer)
+      throw new Error("고객 정보를 새로 불러온 뒤 다시 시도해 주세요.");
+    const sale = await request<SaleDto>("/sales", {
+      productId: product.id,
+      customerNo: customer.number,
+      expectedVersion: product.version,
+      intent,
+    } satisfies OpenSaleRequest);
+    // 청약에 실패해도 같은 신청 번호로 다시 시도한다.
+    setSales((list) => [...list, sale]);
+    setDraft(sale.id);
+    return sale;
   };
   const action = (id: string, name: SaleAction, label: string) =>
     run(label, () => request<SaleDto>(`/sales/${id}/action/${name}`, {}));
-  const abandon = () =>
-    activeDraft?.status === "draft" &&
-    run("가입을 중단하고 있어요", async () => {
-      await request<SaleDto>(`/sales/${activeDraft.id}/action/abandon`, {});
-      // 신청 번호는 가입 화면을 떠난 뒤 지운다(아래 효과). 먼저 지우면 가입 화면이 잠깐 "진행 중인 가입이 없어요"로 바뀐다.
-      navigate(fundPath(activeDraft.productId));
-    });
+  const abandon = () => {
+    if (!enrollment && preparation) return navigate(fundPath(preparation.id));
+    if (enrollment?.status === "draft")
+      return run("가입을 중단하고 있어요", async () => {
+        await request<SaleDto>(`/sales/${enrollment.id}/action/abandon`, {});
+        navigate(fundPath(enrollment.productId));
+      });
+  };
   // 중단한 가입의 신청 번호는 가입 화면 밖에서 지운다.
   useEffect(() => {
     if (draft?.status === "abandoned" && location.pathname !== channel.enroll) {
@@ -328,11 +370,6 @@ export function App() {
       sessionStorage.removeItem(DRAFT_KEY);
     }
   }, [draft?.status, location.pathname]);
-  /** 내 가입 기록에서 숙려 중인 청약을 가입 화면으로 다시 연다. */
-  const resume = (id: string) => {
-    setDraft(id);
-    navigate(channel.enroll);
-  };
   const download = (id: string, kind: ExportKind) =>
     run("파일을 준비하고 있어요", async () => {
       const value = await request<ExportResponse[ExportKind]>(
@@ -353,12 +390,14 @@ export function App() {
           title: "상품 상세",
           back: { to: channel.catalog, label: "상품 목록으로" },
         }
-      : location.pathname === channel.records && recordId
-        ? {
-            title: "가입 기록",
-            back: { to: channel.records, label: "가입 기록 목록으로" },
-          }
-        : {};
+      : location.pathname === channel.enroll
+        ? { title: "가입" }
+        : location.pathname === channel.records && recordId
+          ? {
+              title: "가입 기록",
+              back: { to: channel.records, label: "가입 기록 목록으로" },
+            }
+          : {};
   return (
     <Frame
       firm={firm}
@@ -393,6 +432,7 @@ export function App() {
               activeDraft={activeDraft}
               busy={busy}
               start={start}
+              resume={resume}
             />
           }
         />
@@ -412,24 +452,34 @@ export function App() {
         <Route
           path={channel.enroll}
           element={
-            <Enrollment
-              key={draft?.id ?? "empty"}
-              load={load}
-              sale={draft}
-              rules={rules}
-              products={products}
-              customer={customer}
-              deployment={config?.deployment}
-              busy={busy}
-              run={run}
-              request={request}
-              action={action}
-              abandon={abandon}
-              refresh={refresh}
-              refreshSale={refreshSale}
-              download={download}
-              finish={() => setDraft("")}
-            />
+            !enrollment && !preparation && load === "ready" ? (
+              <Navigate to={channel.catalog} replace />
+            ) : (
+              <Enrollment
+                key={
+                  preparation
+                    ? `${preparation.id}:${preparation.version}`
+                    : (enrollment?.id ?? "empty")
+                }
+                load={load}
+                sale={enrollment}
+                preparation={preparation}
+                rules={rules}
+                products={products}
+                customer={customer}
+                deployment={config?.deployment}
+                busy={busy}
+                run={run}
+                request={request}
+                openSale={openSale}
+                action={action}
+                abandon={abandon}
+                refresh={refresh}
+                refreshSale={refreshSale}
+                download={download}
+                finish={() => setDraft("")}
+              />
+            )
           }
         />
         <Route
@@ -437,7 +487,8 @@ export function App() {
           element={
             <Records
               load={load}
-              sales={sales}
+              sales={ownSales}
+              activeDraft={activeDraft}
               products={products}
               customer={customer}
               selected={recordId}

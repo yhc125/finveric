@@ -1,8 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { FastifyInstance } from "fastify";
+import { API_KEY_PREFIX } from "@finveric/core/api";
 import { ERROR_CODES, errorBody } from "@finveric/core/errors";
 import { FundService } from "./service.ts";
 import { createApp } from "./app.ts";
+import { channelErrorBody } from "./errors.ts";
 
 /**
  * Vercel 라우팅은 `/api/sales`를 `/api?__path=sales`로 바꿔 함수에 전달할 수 있다.
@@ -52,8 +54,14 @@ export default async function handler(
   } catch (error) {
     res.statusCode = ERROR_CODES.API_START_FAILED.status;
     res.setHeader("content-type", "application/json; charset=utf-8");
-    const body = errorBody("API_START_FAILED");
-    res.end(JSON.stringify({ ...body, error: authored(error) ?? body.error }));
+    if (req.headers.authorization?.startsWith(`Bearer ${API_KEY_PREFIX}`)) {
+      res.end(JSON.stringify(channelErrorBody("API_START_FAILED")));
+    } else {
+      const body = errorBody("API_START_FAILED");
+      res.end(
+        JSON.stringify({ ...body, error: authored(error) ?? body.error }),
+      );
+    }
     return;
   }
   req.url = normalizeApiUrl(req.url);

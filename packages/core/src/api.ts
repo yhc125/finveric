@@ -26,6 +26,7 @@ import {
   type ErrorCode,
   type ErrorType,
 } from "./errors.ts";
+import { SIGNAL_KINDS, type Signal } from "./signals.ts";
 
 /** API는 bigint를 문자열로 보낸다(`json()`). 응답 DTO는 이 변환을 거친 모양이다. */
 export type Wire<T> = T extends bigint
@@ -265,13 +266,38 @@ export const approveBodySchema = {
   },
 } as const satisfies ObjectSchema<ApproveRequest>;
 
-/** POST `/api/sales`. 고객과 상품으로 청약 전 신청(초안)을 만든다. 원장 거래는 없다. */
-export type OpenSaleRequest = { productId: Hex; customerNo: string };
+/** 판매사 업무 목록은 승인 요청과 원장 제출이 있는 건을 돌려준다. */
+export type SaleListQuery = { scope?: "work" };
+export const saleListQuerySchema = {
+  type: "object",
+  required: [],
+  properties: {
+    scope: {
+      type: "string",
+      enum: ["work"],
+      description:
+        "승인 요청, 승인 이력, 원장 제출 대기 또는 원장 기록이 있는 판매 건만 조회합니다.",
+    },
+  },
+} as const satisfies ObjectSchema<SaleListQuery>;
+
+/** POST `/api/sales`. 청약하거나 관리자 승인을 요청할 때 판매 ID를 발급한다. */
+export type OpenSaleRequest = {
+  productId: Hex;
+  customerNo: string;
+  expectedVersion?: number;
+  intent?: "subscribe" | "requestApproval";
+};
 export const openSaleBodySchema = {
   type: "object",
   additionalProperties: false,
   required: ["productId", "customerNo"],
-  properties: { productId: BYTES32, customerNo: CUSTOMER_NO },
+  properties: {
+    productId: BYTES32,
+    customerNo: CUSTOMER_NO,
+    expectedVersion: { type: "integer", minimum: 1, maximum: 4_294_967_295 },
+    intent: { type: "string", enum: ["subscribe", "requestApproval"] },
+  },
 } as const satisfies ObjectSchema<OpenSaleRequest>;
 
 /**
@@ -319,15 +345,9 @@ export const tamperBodySchema = {
   },
 } as const satisfies ObjectSchema<TamperRequest>;
 
-/** GET `/api/sales/:id/export/:kind`. 청약한 건의 고객 증빙. 증명서의 confirmTx는 확정 뒤에 들어간다. */
+/** 청약 건의 고객 증명서와 원본 묶음. 증명서의 confirmTx는 확정 뒤에 들어간다. */
 export const EXPORT_KINDS = ["receipt", "original"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
-export type ExportParams = SaleIdParams & { kind: ExportKind };
-export const exportParamsSchema = {
-  type: "object",
-  required: ["id", "kind"],
-  properties: { id: SALE_ID, kind: { enum: EXPORT_KINDS } },
-} as const satisfies ObjectSchema<ExportParams>;
 
 // ── 응답 DTO ─────────────────────────────────────────────────
 // `...View`는 서버가 만드는 값(bigint 포함), `...Dto`는 웹이 받는 값이다.
@@ -358,6 +378,7 @@ export type ConfigDto = Wire<ConfigResponse>;
 
 /** GET `/api/traces`. 증명 생성·거래 제출·영수증·원장 거절 기록. */
 export type TraceDto = Wire<Trace>;
+export type SignalDto = Wire<Signal>;
 
 /**
  * 진단 기준 버전 하나. GET `/api/rules`는 등록한 버전을 버전 순서로 준다.
@@ -433,6 +454,8 @@ export type SaleView = {
   latestAttempt: number;
   /** 최신 회차가 3 이상이면 청약에 관리자 승인이 필요하다. */
   approvalRequired: boolean;
+  /** 고객이 청약을 시도하거나 관리자 승인을 요청했고 승인이 필요한 신청이다. */
+  approvalRequested?: boolean;
   /** 승인 서명을 만든 회차. 최신 회차와 같아야 청약할 수 있다. */
   approvedAttempt?: number;
   /** 청약 전에는 최신 회차로 계산한 예상 값, 청약 뒤에는 원장 값. 진단 전이면 없다. */
@@ -448,6 +471,32 @@ export type SaleView = {
   traces: Trace[];
 };
 export type SaleDto = Wire<SaleView>;
+const CHANNEL_SALE_FIELDS = [
+  "id",
+  "customerRef",
+  "productId",
+  "productVersion",
+  "amount",
+  "createdAt",
+  "status",
+  "latestAttempt",
+  "approvalRequired",
+  "approvalRequested",
+  "approvedAttempt",
+  "suitable",
+  "protectedSale",
+  "coolingEndsAt",
+  "submissionPending",
+] as const satisfies readonly (keyof SaleDto)[];
+
+/** 판매 채널 서버가 한 건의 청약과 승인 상태를 이어서 처리하는 데 쓰는 값. */
+export function channelSale<T extends SaleView | SaleDto>(sale: T) {
+  return Object.fromEntries(
+    CHANNEL_SALE_FIELDS.filter((field) => sale[field] !== undefined).map(
+      (field) => [field, sale[field]],
+    ),
+  ) as Pick<T, (typeof CHANNEL_SALE_FIELDS)[number]>;
+}
 
 /** POST `/api/demo/tamper`의 결과. 원장이 거절하면 `rejected: true`와 오류 이름을 준다. */
 export type TamperResponse = {
@@ -753,6 +802,19 @@ export const customerSchema = responseSchema<CustomerDto>(
   {},
 );
 
+export const signalSchema = responseSchema<SignalDto>(
+  "Signal",
+  "원장에 기록된 진단·판매 이력에서 찾은 위험 신호",
+  {
+    kind: { enum: SIGNAL_KINDS },
+    customerRef: CUSTOMER_REF,
+    saleId: SALE_ID_VALUE,
+    attempt: { type: "integer", minimum: 1 },
+    detail: STRING,
+  },
+  { saleId: true, attempt: true },
+);
+
 export const traceSchema = responseSchema<TraceDto>(
   "Trace",
   "처리 기록 하나. 증명 생성, 거래 제출, 영수증, 원장 거절을 남깁니다.",
@@ -825,7 +887,7 @@ export const saleSchema = responseSchema<SaleDto>(
     status: {
       enum: SALE_VIEW_STATUSES,
       description:
-        "draft는 청약 전 진행 중, abandoned는 청약 전 중단(둘 다 원장 밖). subscribed는 청약을 원장에 기록했고 최종 확인을 기다린다(녹취·숙려 대상은 coolingEndsAt까지 숙려 중). confirmed는 가입 확정, withdrawn은 철회다.",
+        "draft는 청약 거래 전에 발급한 판매 ID, abandoned는 그 ID의 취소입니다. subscribed는 원장에 청약을 기록하고 최종 확인을 기다리는 상태입니다. confirmed는 가입 확정, withdrawn은 철회입니다.",
     },
     latestAttempt: {
       type: "integer",
@@ -835,6 +897,10 @@ export const saleSchema = responseSchema<SaleDto>(
     approvalRequired: {
       type: "boolean",
       description: "최신 회차가 3 이상이면 청약 전에 관리자 승인이 필요합니다.",
+    },
+    approvalRequested: {
+      type: "boolean",
+      description: "고객이 관리자 승인 절차를 시작한 건에 포함됩니다.",
     },
     approvedAttempt: {
       type: "integer",
@@ -860,6 +926,7 @@ export const saleSchema = responseSchema<SaleDto>(
     traces: arrayOf(traceSchema),
   },
   {
+    approvalRequested: true,
     approvedAttempt: true,
     suitable: true,
     protectedSale: true,
@@ -867,6 +934,18 @@ export const saleSchema = responseSchema<SaleDto>(
     chain: true,
   },
 );
+
+export const channelSaleSchema: ResponseSchema = {
+  type: "object",
+  title: "ChannelSale",
+  description: "판매 채널의 청약과 승인 상태입니다.",
+  required: CHANNEL_SALE_FIELDS.filter((field) =>
+    saleSchema.required.includes(field),
+  ),
+  properties: Object.fromEntries(
+    CHANNEL_SALE_FIELDS.map((field) => [field, saleSchema.properties[field]]),
+  ),
+};
 
 export const tamperResponseSchema = responseSchema<TamperResponse>(
   "TamperResult",

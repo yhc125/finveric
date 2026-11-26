@@ -39,6 +39,7 @@ const s = { ...ui, ...local };
 export function Records({
   load,
   sales,
+  activeDraft,
   products,
   customer,
   selected,
@@ -48,6 +49,7 @@ export function Records({
 }: {
   load: LoadState;
   sales: Sale[];
+  activeDraft?: Sale;
   products: ProductEntryDto[];
   customer?: CustomerDto;
   selected: string;
@@ -100,6 +102,15 @@ export function Records({
   return (
     <>
       <Heading title="내 가입" />
+      {activeDraft && (
+        <section className={`${s.panel} ${s.pad} ${s.spaced}`}>
+          <h2>진행 중인 가입</h2>
+          <p>{productName(saleProduct(products, activeDraft)?.document)}</p>
+          <Button blocked={!!busy} onClick={() => resume(activeDraft.id)}>
+            가입 이어하기
+          </Button>
+        </section>
+      )}
       {records.length ? (
         <ul className={s.recordList} aria-label="가입 기록 목록">
           {records.map((record) => (
@@ -121,7 +132,7 @@ export function Records({
             </li>
           ))}
         </ul>
-      ) : (
+      ) : !activeDraft ? (
         <Empty
           title={
             load === "ready"
@@ -140,7 +151,7 @@ export function Records({
             <Link to={channel.catalog}>상품 보러 가기</Link>
           </Button>
         </Empty>
-      )}
+      ) : null}
     </>
   );
 }

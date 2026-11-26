@@ -8,11 +8,13 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import {
+  DEMO_AMOUNT,
   isProtectedSale,
   diagnosisCounts,
   isSuitable,
   RISK_GRADE_NAMES,
   type Deployment,
+  type Product,
 } from "@finveric/core";
 import type {
   CustomerDto,
@@ -20,6 +22,7 @@ import type {
   ReassessmentReason,
   DiagnosisDto,
   ExportKind,
+  OpenSaleRequest,
   ProductEntryDto,
   RuleEntryDto,
   SaleAction,
@@ -97,6 +100,8 @@ const progressOf = (stage: Stage, part = 0) =>
   (STAGES.indexOf(stage) + part) / (STAGES.length - 1);
 
 const flowKey = (id: string) => `finveric-enroll:${id}`;
+const saveFlow = (id: string, flow: Flow) =>
+  sessionStorage.setItem(flowKey(id), JSON.stringify(flow));
 function loadFlow(id: string, initial: Flow): Flow {
   try {
     const value = sessionStorage.getItem(flowKey(id));
@@ -150,6 +155,7 @@ type Step = {
 export function Enrollment({
   load,
   sale,
+  preparation,
   rules,
   products,
   customer,
@@ -157,6 +163,7 @@ export function Enrollment({
   busy,
   run,
   request,
+  openSale,
   action,
   abandon,
   refresh,
@@ -166,6 +173,7 @@ export function Enrollment({
 }: {
   load: LoadState;
   sale?: Sale;
+  preparation?: Product;
   rules: RuleEntryDto[];
   products: ProductEntryDto[];
   customer?: CustomerDto;
@@ -173,6 +181,10 @@ export function Enrollment({
   busy: string;
   run: Run;
   request: typeof api;
+  openSale: (
+    product: Product,
+    intent: NonNullable<OpenSaleRequest["intent"]>,
+  ) => Promise<Sale>;
   action: (id: string, name: SaleAction, label: string) => unknown;
   abandon: () => unknown;
   refresh: () => unknown;
@@ -202,31 +214,26 @@ export function Enrollment({
   const update = (change: Partial<Flow>) =>
     setFlow((current) => ({ ...current, ...change }));
   useEffect(() => {
-    if (sale?.status === "draft")
-      sessionStorage.setItem(flowKey(sale.id), JSON.stringify(flow));
+    if (sale?.status === "draft") saveFlow(sale.id, flow);
     else if (sale) sessionStorage.removeItem(flowKey(sale.id));
   }, [flow, sale]);
-  // 핵심 설명 카드를 본 시간을 잰다. 카드 화면을 떠날 때 더한다. 다른 탭으로 가도 그때까지 본 시간을 보관한다.
+  // 핵심 설명을 본 시간은 청약을 준비하는 동안 화면에서 잰다.
   const cardStart = useRef<number | undefined>(undefined);
   const flowRef = useRef(flow);
   flowRef.current = flow;
   useEffect(() => {
-    if (flow.phase !== "cards" || sale?.status !== "draft") return;
+    if (flow.phase !== "cards" || (sale && sale.status !== "draft")) return;
     cardStart.current ??= Date.now();
-    const id = sale.id;
     return () => {
       if (cardStart.current === undefined) return;
       const spent = Date.now() - cardStart.current;
       cardStart.current = undefined;
       const current = flowRef.current;
-      if (current.phase === "cards")
-        sessionStorage.setItem(
-          flowKey(id),
-          JSON.stringify({
-            ...current,
-            explanationMs: current.explanationMs + spent,
-          }),
-        );
+      if (current.phase === "cards" && sale)
+        saveFlow(sale.id, {
+          ...current,
+          explanationMs: current.explanationMs + spent,
+        });
     };
   }, [flow.phase, sale?.status, sale?.id]);
   const leaveCards = (change: Partial<Flow>) => {
@@ -234,7 +241,7 @@ export function Enrollment({
     cardStart.current = undefined;
     update({ ...change, explanationMs: flow.explanationMs + spent });
   };
-  const product = saleProduct(products, sale);
+  const product = sale ? saleProduct(products, sale) : preparation;
   const latest = diagnoses.at(-1);
   const subscribed = sale?.status === "subscribed";
   const now = useNow(subscribed && sale?.coolingEndsAt !== undefined);
@@ -284,7 +291,7 @@ export function Enrollment({
     titleRef.current?.focus({ preventScroll: true });
   }, [stepKey]);
 
-  if (!sale || !product)
+  if (!product)
     return (
       <>
         <Heading title="가입" />
@@ -326,7 +333,8 @@ export function Enrollment({
   );
   const subscribeTx = confirmedTrace(sale, "subscribe");
   const confirmTx = confirmedTrace(sale, "confirm");
-  const preSubscribe = sale.status === "draft";
+  const amount = sale?.amount ?? DEMO_AMOUNT;
+  const preSubscribe = !sale || sale.status === "draft";
 
   const diagnose = async (answers: (number | null)[]) => {
     if (!customer || answers.some((answer) => answer === null)) return;
@@ -344,6 +352,8 @@ export function Enrollment({
     if (result)
       update({
         phase: "result",
+        answers: [],
+        reassessmentReason: "",
         higherRisk: false,
         consent: false,
         cardsRead: false,
@@ -360,20 +370,12 @@ export function Enrollment({
       cardsRead: false,
     });
   };
-  const subscribe = () =>
-    run("청약을 기록하고 있어요", () =>
-      request<SaleDto>(`/sales/${sale.id}/action/subscribe`, {
-        explanationSeconds,
-        higherRiskConfirmed: !suitable && flow.higherRisk,
-        recordingConsent: protectedSale && flow.consent,
-      } satisfies SubscribeRequest),
-    );
   const lastCard = document.cards.length - 1;
   const toCardsEnd = () =>
     update({ phase: protectedSale ? "recording" : "cards", card: lastCard });
 
   let step: Step;
-  if (sale.status === "confirmed") {
+  if (sale?.status === "confirmed") {
     step = {
       stage: "증명서",
       label: "증명서",
@@ -453,7 +455,7 @@ export function Enrollment({
         />
       ),
     };
-  } else if (sale.status === "withdrawn") {
+  } else if (sale?.status === "withdrawn") {
     step = {
       stage: "최종 확인",
       label: "철회",
@@ -472,7 +474,7 @@ export function Enrollment({
         />
       ),
     };
-  } else if (sale.status === "abandoned") {
+  } else if (sale?.status === "abandoned") {
     step = {
       stage: "진단",
       label: "중단",
@@ -952,8 +954,40 @@ export function Enrollment({
       ),
     };
   } else {
-    const approved =
-      !sale.approvalRequired || sale.approvedAttempt === sale.latestAttempt;
+    const approvalRequired = sale?.approvalRequired ?? latest.attempt >= 3;
+    const approved = !!sale && sale.approvedAttempt === sale.latestAttempt;
+    const requested =
+      sale?.approvalRequested || sale?.approvedAttempt !== undefined;
+    const requestApproval =
+      approvalRequired && !requested && !sale?.submissionPending;
+    const awaitingApproval = approvalRequired && !requestApproval && !approved;
+    const submit = () =>
+      run(
+        requestApproval
+          ? "관리자 승인을 요청하고 있어요"
+          : "청약을 기록하고 있어요",
+        async () => {
+          const application =
+            sale && !requestApproval
+              ? sale
+              : await openSale(
+                  product,
+                  requestApproval ? "requestApproval" : "subscribe",
+                );
+          if (application.id !== sale?.id) saveFlow(application.id, flow);
+          if (
+            requestApproval ||
+            (application.approvalRequired &&
+              application.approvedAttempt !== application.latestAttempt)
+          )
+            return;
+          await request<SaleDto>(`/sales/${application.id}/action/subscribe`, {
+            explanationSeconds,
+            higherRiskConfirmed: !suitable && flow.higherRisk,
+            recordingConsent: protectedSale && flow.consent,
+          } satisfies SubscribeRequest);
+        },
+      );
     step = {
       stage: "청약",
       label: "청약",
@@ -961,9 +995,14 @@ export function Enrollment({
       back: isBusy ? undefined : toCardsEnd,
       content: (
         <>
-          {sale.approvalRequired && (
+          {approvalRequired && (
             <div aria-live="polite">
-              {approved ? (
+              {requestApproval ? (
+                <Notice>
+                  {latest.attempt}회차 진단을 받았어요. 청약하려면 판매사에
+                  관리자 승인을 요청해 주세요.
+                </Notice>
+              ) : approved ? (
                 <div className={`${s.approval} ${s.approvalDone}`}>
                   <CircleCheck size={22} />
                   <div>
@@ -977,7 +1016,7 @@ export function Enrollment({
                   <div>
                     <strong>판매사 관리자가 진단 이력을 확인하고 있어요</strong>
                     <p>
-                      {sale.latestAttempt}번째 진단이라 판매사 관리자 승인 뒤에
+                      {latest.attempt}번째 진단이라 판매사 관리자 승인 뒤에
                       청약할 수 있어요. 승인되면 이 화면이 바로 바뀌어요. 다른
                       탭에 다녀와도 괜찮아요.
                     </p>
@@ -989,8 +1028,8 @@ export function Enrollment({
           <Facts
             rows={[
               ["상품", productName(document)],
-              ["설명서", `v${sale.productVersion}`],
-              ["가입 금액", won(sale.amount)],
+              ["설명서", `v${product.version}`],
+              ["가입 금액", won(amount)],
               [
                 "투자성향",
                 `${profileName(latest.profile)} · ${latest.attempt}회차`,
@@ -1010,10 +1049,16 @@ export function Enrollment({
       ),
       action: (
         <PrimaryAction
-          label={approved ? "청약하기" : "승인을 기다리고 있어요"}
+          label={
+            requestApproval
+              ? "관리자 승인 요청하기"
+              : awaitingApproval
+                ? "승인을 기다리고 있어요"
+                : "청약하기"
+          }
           busy={isBusy}
-          blocked={!approved || sale.submissionPending}
-          onClick={() => void subscribe()}
+          blocked={awaitingApproval || sale?.submissionPending}
+          onClick={() => void submit()}
         />
       ),
     };
@@ -1025,7 +1070,7 @@ export function Enrollment({
       <StepHeader
         label={step.label}
         progress={progressOf(step.stage, step.part)}
-        caption={`${productName(document)} · ${won(sale.amount)}`}
+        caption={`${productName(document)} · ${won(amount)}`}
         back={isBusy ? undefined : step.back}
         stop={preSubscribe && !isBusy ? () => setConfirm("stop") : undefined}
       />
@@ -1035,7 +1080,7 @@ export function Enrollment({
           {step.title}
         </h2>
       </div>
-      {sale.submissionPending && (
+      {sale?.submissionPending && (
         <Notice>
           기록을 확인하고 있어요.{" "}
           <button className={s.linkButton} onClick={() => void refresh()}>
@@ -1057,15 +1102,21 @@ export function Enrollment({
             </li>
           ))}
         </ol>
-        <p className={s.small}>
-          가입 신청 번호 <code>{sale.id}</code>
-        </p>
+        {sale && (
+          <p className={s.small}>
+            가입 신청 번호 <code>{sale.id}</code>
+          </p>
+        )}
       </Disclosure>
       <ActionBar busy={busy}>{step.action}</ActionBar>
       <ConfirmDialog
         open={confirm === "stop"}
         title="가입을 중단할까요?"
-        text="중단하면 이 가입 신청은 끝나요. 진단 기록은 남아요. 다시 가입할 때 최근 진단 결과로 이어 가거나 다시 진단할 수 있어요."
+        text={
+          latest
+            ? "여기까지 입력한 내용은 사라져요. 완료한 진단 결과는 다음 가입 때 다시 쓸 수 있어요."
+            : "여기까지 입력한 내용은 사라져요."
+        }
         confirmLabel="중단하기"
         cancelLabel="계속 가입하기"
         size="large"
@@ -1085,7 +1136,7 @@ export function Enrollment({
         onCancel={() => setConfirm(undefined)}
         onConfirm={() => {
           setConfirm(undefined);
-          void action(sale.id, "withdraw", "청약을 철회하고 있어요");
+          if (sale) void action(sale.id, "withdraw", "청약을 철회하고 있어요");
         }}
       />
     </div>

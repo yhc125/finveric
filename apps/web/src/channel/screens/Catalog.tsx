@@ -48,12 +48,14 @@ export function Catalog({
   activeDraft,
   busy,
   start,
+  resume,
 }: {
   load: LoadState;
   products: ProductEntryDto[];
   activeDraft?: Sale;
   busy: string;
   start: (productId: string, replace?: boolean) => unknown;
+  resume: (id: string) => void;
 }) {
   const enroll = useStartEnrollment(products, activeDraft, start);
   const [starting, setStarting] = useState("");
@@ -73,7 +75,17 @@ export function Catalog({
   const initialLoading = load === "loading" && selling.length === 0;
   return (
     <>
-      <Heading title="상품" />
+      <Heading title="상품">
+        {activeDraft && (
+          <Button
+            variant="outline"
+            blocked={!!busy}
+            onClick={() => resume(activeDraft.id)}
+          >
+            가입 이어하기
+          </Button>
+        )}
+      </Heading>
       <div className={s.tools} role="search" aria-label="상품 찾기">
         <div className={s.search}>
           <Search size={18} aria-hidden="true" />

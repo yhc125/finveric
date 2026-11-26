@@ -9,12 +9,11 @@ import {
   DEMO_SESSION_PREFIX,
   type CustomerParams,
   type ErrorResponse,
-  type ExportParams,
   type OpenSaleRequest,
 } from "@finveric/core/api";
 import { ERROR_CODES, errorBody, type ErrorCode } from "@finveric/core/errors";
 import { openApiOptions } from "./docs/openapi.ts";
-import { CodedError } from "./errors.ts";
+import { channelErrorBody, CodedError } from "./errors.ts";
 import { CHANNEL_TAG, tagOf } from "./docs/operations.ts";
 import { FundService } from "./service.ts";
 import { customerRoutes } from "./routes/customers.ts";
@@ -71,7 +70,8 @@ const DEMO_ROUTES = new Set([
   "GET /api/sales",
   "POST /api/sales",
   "GET /api/sales/:id",
-  "GET /api/sales/:id/export/:kind",
+  "GET /api/sales/:id/export/receipt",
+  "GET /api/sales/:id/export/original",
   "POST /api/sales/:id/action/abandon",
   "POST /api/sales/:id/action/subscribe",
   "POST /api/sales/:id/action/confirm",
@@ -80,6 +80,7 @@ const DEMO_ROUTES = new Set([
 declare module "fastify" {
   interface FastifyRequest {
     demoCustomerNo?: string;
+    channelKey: boolean;
   }
 }
 /** 접근 코드 없이 여는 경로: 상태 확인, 검증 설정, API 문서. */
@@ -114,8 +115,10 @@ export async function createApp(service = new FundService()) {
     },
   });
   // 경로보다 먼저 등록한다. 이후에 등록한 경로로 /api/openapi.json을 만든다.
-  await app.register(swagger, openApiOptions(PUBLIC_PATHS));
+  await app.register(swagger, openApiOptions(PUBLIC_PATHS, "integration"));
+  await app.register(swagger, openApiOptions(PUBLIC_PATHS, "internal"));
   app.decorateRequest("demoCustomerNo");
+  app.decorateRequest("channelKey", false);
   app.addHook("preHandler", async (req, reply) => {
     const url = req.routeOptions.url ?? "";
     const supplied = bearer(req.headers);
@@ -127,15 +130,6 @@ export async function createApp(service = new FundService()) {
       req.demoCustomerNo = `D-${digest.slice(0, 30)}`;
     }
     if (PUBLIC_PATHS.has(url) || req.method === "OPTIONS") return;
-    // 공개 시연의 진단 원본은 판매 건을 만든 브라우저 세션에서만 제공한다.
-    if (
-      publicChannel &&
-      !token &&
-      !req.demoCustomerNo &&
-      url === "/api/sales/:id/export/:kind" &&
-      (req.params as ExportParams).kind === "original"
-    )
-      return fail(reply, "DEMO_SCOPE_DENIED");
     if (req.demoCustomerNo) {
       if (!DEMO_ROUTES.has(`${req.method} ${url}`))
         return fail(reply, "DEMO_SCOPE_DENIED");
@@ -152,12 +146,16 @@ export async function createApp(service = new FundService()) {
         return fail(reply, "API_KEY_INVALID");
       if (url && tagOf(req.method, url) !== CHANNEL_TAG)
         return fail(reply, "API_KEY_SCOPE_DENIED");
+      req.channelKey = true;
     } else if (token) {
       // 접근 코드로 판매사 콘솔을 쓴다. 공개 시연을 끄면 증권사 앱 예시도 쓴다.
       const given = Buffer.from(supplied);
       const expected = Buffer.from(token);
       if (given.length !== expected.length || !timingSafeEqual(given, expected))
         return fail(reply, "ACCESS_CODE_INVALID");
+    } else if (publicChannel && url === "/api/sales/:id/export/original") {
+      // 공개 시연의 원본은 판매 건을 만든 브라우저 세션에서 제공한다.
+      return fail(reply, "DEMO_SCOPE_DENIED");
     }
     if (
       req.method === "POST" &&
@@ -171,7 +169,7 @@ export async function createApp(service = new FundService()) {
   app.addHook("preSerialization", async (_req, _reply, payload) =>
     JSON.parse(json(payload)),
   );
-  app.setErrorHandler((error, _req, reply) => {
+  app.setErrorHandler((error, req, reply) => {
     if (error && typeof error === "object" && "validation" in error)
       return fail(reply, "INVALID_REQUEST");
     // Fastify와 플러그인이 정한 4xx(잘못된 JSON 400, 본문 초과 413, 본문 형식 415, 요청 한도 429)는 상태 코드를 유지한다.
@@ -195,11 +193,16 @@ export async function createApp(service = new FundService()) {
     const authored = /^[가-힣]/.test(message) && !message.includes("http");
     // 모든 오류 응답에 type과 code가 있다. 모듈은 CodedError를 던진다.
     // code가 없는 오류는 INTERNAL_ERROR다. 우리가 쓴 문장이면 그 문장을 보낸다.
-    const body: ErrorResponse = !authored
-      ? errorBody("INTERNAL_ERROR")
-      : error instanceof CodedError
-        ? error.body
-        : { ...errorBody("INTERNAL_ERROR"), error: message };
+    const useApiKey = bearer(req.headers).startsWith(API_KEY_PREFIX);
+    const body: ErrorResponse = useApiKey
+      ? channelErrorBody(
+          error instanceof CodedError ? error.code : "INTERNAL_ERROR",
+        )
+      : !authored
+        ? errorBody("INTERNAL_ERROR")
+        : error instanceof CodedError
+          ? error.body
+          : { ...errorBody("INTERNAL_ERROR"), error: message };
     // 상태는 type으로 정한다(`ERROR_CODES`의 status). 값 검사 오류 400, 없는 대상 404, 나머지 업무 오류와 처리 실패 409.
     reply.code(ERROR_CODES[body.code].status).send(body);
   });

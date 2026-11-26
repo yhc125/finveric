@@ -39,9 +39,11 @@ export async function ensureDraft(svc: FundService, record: StoredSale) {
 /** 고객과 상품의 최신 버전으로 신청(초안)을 만든다. 원장 거래는 없다. */
 export async function open(
   svc: FundService,
-  { productId, customerNo }: OpenSaleRequest,
+  { productId, customerNo, expectedVersion, intent }: OpenSaleRequest,
 ): Promise<SaleView> {
   const product = await latestProduct(svc, productId);
+  if (expectedVersion !== undefined && expectedVersion !== product.version)
+    throw new CodedError("PRODUCT_VERSION_CHANGED");
   const record: StoredSale = {
     id: randomField(),
     customerRef: customerRef(svc, customerNo),
@@ -51,8 +53,17 @@ export async function open(
     createdAt: new Date().toISOString(),
     traces: [],
   };
+  const sale = await publicSale(svc, record);
+  if (intent && sale.latestAttempt === 0)
+    throw new CodedError("DIAGNOSIS_REQUIRED");
+  if (intent === "requestApproval" && !sale.approvalRequired)
+    throw new CodedError("APPROVAL_NOT_NEEDED");
+  if (intent && sale.approvalRequired) {
+    record.approvalRequested = true;
+    sale.approvalRequested = true;
+  }
   svc.repository.add(record);
-  return publicSale(svc, record);
+  return sale;
 }
 
 /** 청약 전 신청을 중단한다. 진단 회차는 원장에 그대로 남는다. */

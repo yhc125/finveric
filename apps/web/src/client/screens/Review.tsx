@@ -1,6 +1,6 @@
-import { useLocation, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import { ExternalLink } from "lucide-react";
-import type { ProductEntryDto } from "@finveric/core/api";
+import type { ProductEntryDto, SignalDto } from "@finveric/core/api";
 import type { LoadState } from "../../shared/api.ts";
 import { Button } from "../../shared/button.tsx";
 import {
@@ -18,6 +18,8 @@ import client from "../client.module.css";
 import local from "./operations.module.css";
 import { CHANNEL_APP_HREF, CHANNEL_APP_LABEL } from "../../shared/links.ts";
 import { StatusBadge } from "../../shared/sale-components.tsx";
+import { REVIEW_SIGNALS_PATH } from "../paths.ts";
+import { Signals } from "./Signals.tsx";
 import {
   LoadingStatus,
   SaleIdText,
@@ -29,7 +31,7 @@ import {
   nowSeconds,
   productName,
   saleProduct,
-  STATUS_KEYS,
+  WORK_STATUS_KEYS,
   STATUS_LABELS,
   STATUS_TONES,
   statusKey,
@@ -42,8 +44,62 @@ const s = { ...ui, ...client, ...local };
 const yesNo = (value?: boolean, yes = "예", no = "아니요") =>
   value === undefined ? "—" : value ? yes : no;
 
-/** 판매 건 목록과 상태별 필터. */
 export function Review({
+  load,
+  sales,
+  products,
+  signals,
+  signalLoad,
+  refreshSignals,
+}: {
+  load: LoadState;
+  sales: Sale[];
+  products: ProductEntryDto[];
+  signals: SignalDto[];
+  signalLoad: LoadState;
+  refreshSignals: () => unknown;
+}) {
+  const [params] = useSearchParams();
+  const showingSignals = params.get("view") === "signals";
+  return (
+    <>
+      <Heading title="판매·검토" />
+      <nav
+        aria-label="판매 검토 메뉴"
+        className={`${s.chips} ${s.reviewModes}`}
+      >
+        <Link
+          to="/review"
+          className={!showingSignals ? s.chipActive : undefined}
+          aria-current={!showingSignals ? "page" : undefined}
+        >
+          판매 건
+        </Link>
+        <Link
+          to={REVIEW_SIGNALS_PATH}
+          className={showingSignals ? s.chipActive : undefined}
+          aria-current={showingSignals ? "page" : undefined}
+        >
+          위험 신호
+        </Link>
+      </nav>
+      {showingSignals ? (
+        <Signals
+          load={signalLoad}
+          sales={sales}
+          products={products}
+          signals={signals}
+          refresh={refreshSignals}
+        />
+      ) : (
+        <SaleList load={load} sales={sales} products={products} />
+      )}
+    </>
+  );
+}
+
+/** 판매 건 목록과 상태별 필터. */
+function SaleList({
   load,
   sales,
   products,
@@ -56,7 +112,7 @@ export function Review({
   const { search } = useLocation();
   const [params, setParams] = useSearchParams();
   const status = params.get("status");
-  const filter = STATUS_KEYS.find((key) => key === status) ?? "";
+  const filter = WORK_STATUS_KEYS.find((key) => key === status) ?? "";
   const setFilter = (key: StatusKey | "") =>
     setParams(key ? { status: key } : {}, { replace: true });
   const ordered = [...sales].sort((a, b) =>
@@ -70,12 +126,11 @@ export function Review({
   const loading = load === "loading";
   return (
     <>
-      <Heading title="판매·검토" />
       <LoadingStatus loading={loading}>
         판매 건을 불러오고 있습니다.
       </LoadingStatus>
       <div className={s.chips} role="group" aria-label="판매 건 상태 필터">
-        {(["", ...STATUS_KEYS] as const).map((key) =>
+        {(["", ...WORK_STATUS_KEYS] as const).map((key) =>
           loading ? (
             <Skeleton key={key || "all"} width="5.25rem" height="2.5rem" />
           ) : (
@@ -106,7 +161,7 @@ export function Review({
                 <th scope="col">적합성</th>
                 <th scope="col">녹취·숙려</th>
                 <th scope="col">관리자 승인</th>
-                <th scope="col">신청 시각</th>
+                <th scope="col">기록 시각</th>
                 <DetailColumn label="판매 건 상세" />
               </tr>
             </thead>
@@ -128,7 +183,6 @@ export function Review({
               ) : (
                 shown.map((record) => {
                   const attempt = record.chain?.attempt ?? record.latestAttempt;
-                  const abandoned = record.status === "abandoned";
                   return (
                     <SaleRow key={record.id} saleId={record.id} search={search}>
                       <td>
@@ -142,34 +196,30 @@ export function Review({
                         <StatusBadge sale={record} now={now} />
                       </td>
                       <td>
-                        {abandoned
-                          ? "—"
-                          : attempt
-                            ? `${attempt}회차${attempt > 1 ? " · 재진단" : ""}`
-                            : "진단 전"}
+                        {attempt
+                          ? `${attempt}회차${attempt > 1 ? " · 재진단" : ""}`
+                          : "—"}
                       </td>
-                      <td>
-                        {abandoned
-                          ? "—"
-                          : yesNo(record.suitable, "적합", "부적합")}
-                      </td>
-                      <td>
-                        {abandoned
-                          ? "—"
-                          : yesNo(record.protectedSale, "대상", "—")}
-                      </td>
+                      <td>{yesNo(record.suitable, "적합", "부적합")}</td>
+                      <td>{yesNo(record.protectedSale, "대상", "—")}</td>
                       <td>
                         {awaitingApproval(record) ? (
                           <Badge tone="warning">승인 필요</Badge>
                         ) : record.chain?.approved ||
                           (record.status === "draft" &&
-                            record.approvalRequired) ? (
+                            record.approvedAttempt === record.latestAttempt) ? (
                           "승인"
                         ) : (
                           "—"
                         )}
                       </td>
-                      <td>{dateTime(record.createdAt)}</td>
+                      <td>
+                        {dateTime(
+                          record.chain
+                            ? Number(record.chain.subscribedAt)
+                            : record.createdAt,
+                        )}
+                      </td>
                     </SaleRow>
                   );
                 })
@@ -189,7 +239,7 @@ export function Review({
           ) : load === "ready" ? (
             <Empty
               title="아직 판매 건이 없습니다"
-              text="고객이 증권사 앱에서 상품을 고르고 가입을 시작하면 판매 건이 생깁니다."
+              text="고객이 관리자 승인을 요청하거나 청약을 제출하면 여기에 표시됩니다."
             >
               <Button variant="outline" asChild>
                 <a href={CHANNEL_APP_HREF} target="_blank" rel="noreferrer">

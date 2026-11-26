@@ -22,10 +22,11 @@ type Request = {
 };
 type Inject = ReturnType<typeof documented>["inject"];
 
-/** 모든 응답을 API 문서(/api/openapi.json)의 응답 스키마와 대조한다. */
+/** 공개 연동 경로와 콘솔 내부 경로를 내부 계약과 대조한다. */
 async function keysApp(t: { after: (fn: () => unknown) => void }) {
   const { app, file } = await offlineStack(t);
-  const spec = (await app.inject({ url: "/api/openapi.json" })).json();
+  await app.ready();
+  const spec = app.internalSwagger();
   return { ...documented(app.inject.bind(app), spec), file };
 }
 function documented(
@@ -102,6 +103,7 @@ test("API 키는 판매 채널 연동 API만 부르고, 폐기하면 401이다",
   for (const request of [
     { url: "/api/keys" },
     { url: "/api/sales" },
+    { url: `/api/sales/${SALE}/export/original` },
     { method: "POST" as const, url: "/api/keys", payload: { name: "x" } },
     { method: "POST" as const, url: `/api/keys/${id}/revoke` },
   ]) {

@@ -22,6 +22,7 @@ import {
   registerResponseSchema,
   ruleEntrySchema,
   saleSchema,
+  signalSchema,
   tamperResponseSchema,
   traceSchema,
   type DiagnoseRequest,
@@ -40,7 +41,7 @@ export const TAGS = [
   {
     name: "판매 채널 연동",
     description:
-      "증권사 앱이 고객 한 명의 진단과 가입을 처리할 때 부르는 API입니다. 설정·기준·상품 조회, 진단, 신청, 청약, 최종 확인, 철회, 증빙 내려받기가 있습니다.",
+      "증권사 앱이 고객 한 명의 진단과 가입을 처리할 때 부르는 API입니다. 기준·상품 조회, 완료한 진단 기록, 관리자 승인 요청, 청약, 최종 확인, 철회, 증빙 내려받기가 있습니다.",
   },
   {
     name: "판매사 콘솔",
@@ -187,7 +188,7 @@ const saleExample = (
   traces,
 });
 const SALE_EXAMPLES = {
-  draft: saleExample("draft", []),
+  draft: { ...saleExample("draft", []), approvalRequested: true },
   approved: saleExample("draft", [approvalTrace]),
   abandoned: saleExample("abandoned", [
     {
@@ -256,16 +257,14 @@ const sends = (...ledger: LedgerError[]): ErrorCode[] => [
 export const PARAMETER_EXAMPLES: Record<string, string> = {
   id: SALE_ID,
   customerNo: DEMO_CUSTOMER_NO,
-  kind: "receipt",
 };
 /** API 키 ID 예시. 경로 이름이 `id`라서 판매 ID 예시와 따로 둔다. */
 export const API_KEY_ID_EXAMPLE = "key_3f9a1c2b7d4e";
 
 export const OPERATIONS: Record<string, Operation> = {
-  // ── 판매 채널 연동 ─────────────────────────────────────────
   "GET /api/config": {
     operationId: "getConfig",
-    tag: "판매 채널 연동",
+    tag: "시스템",
     summary: "검증 설정 조회",
     description:
       "원장 주소, 체인 ID, 역할 주소, 숙려 시간 같은 공개 검증 설정을 돌려줍니다. 접근 코드 사용 여부(`requiresToken`)와 기본 고객 번호도 함께 돌려줍니다. 접근 코드 없이 부를 수 있습니다.",
@@ -273,6 +272,7 @@ export const OPERATIONS: Record<string, Operation> = {
       200: { description: "검증 설정", schema: configResponseSchema },
     },
   },
+  // ── 판매 채널 연동 ─────────────────────────────────────────
   "GET /api/rules": {
     operationId: "listRules",
     tag: "판매 채널 연동",
@@ -311,7 +311,7 @@ export const OPERATIONS: Record<string, Operation> = {
     tag: "판매 채널 연동",
     summary: "투자성향 진단 기록",
     description:
-      "최신 기준의 문항 순서대로 고른 선택지 번호(0부터)를 보냅니다. 서버가 영지식 증명을 만들고, 판매사 키로 다음 회차를 원장에 기록합니다. 원장에는 판정 결과와 커밋먼트, 가명 ID·누적 회차·기준 해시 등 검증 문맥을 기록합니다. 답변과 임의값은 API가 처리하고 오프체인에 보관하며 권한 있는 원본 다운로드에 포함합니다. 선택형 reassessmentReason은 2회차부터 오프체인에만 보관합니다. 증명 생성 때문에 몇 초가 걸립니다.",
+      "고객이 답변을 제출하면 최신 기준의 문항 순서대로 선택지 번호(0부터)를 보냅니다. FINVERIC이 영지식 증명을 만들고 다음 진단 회차를 원장에 기록합니다. 원장에는 결과, 커밋먼트, 가명 ID, 회차와 기준 해시가 들어갑니다. 답변과 임의값, 2회차부터 선택할 수 있는 reassessmentReason은 원장 밖에 보관합니다. 처리 결과를 받지 못하면 고객의 진단 회차를 먼저 조회합니다. 같은 답변으로 다시 요청해도 서버가 새 진단으로 처리합니다.",
     responses: {
       200: { description: "기록한 진단 회차", schema: diagnosisSchema },
     },
@@ -320,21 +320,37 @@ export const OPERATIONS: Record<string, Operation> = {
       "RULE_NOT_REGISTERED",
       "PROOF_GENERATION_FAILED",
       "STORED_RECORD_MISMATCH",
-      ...sends("InvalidAttempt", "InvalidProof", "InvalidVersion", "Unauthorized"),
+      ...sends(
+        "InvalidAttempt",
+        "InvalidProof",
+        "InvalidVersion",
+        "Unauthorized",
+      ),
     ],
     example: { answers: [2, 1, 1, 0, 1, 1] } satisfies DiagnoseRequest,
   },
   "POST /api/sales": {
     operationId: "openSale",
     tag: "판매 채널 연동",
-    summary: "가입 신청",
+    summary: "청약 준비 또는 관리자 승인 요청",
     description:
-      "고객과 상품으로 청약 전 신청(초안)을 만듭니다. 상품의 최신 설명서 버전을 씁니다. 원장 거래는 보내지 않습니다.",
-    responses: sale("만든 판매 건(status: draft)", SALE_EXAMPLES.draft),
-    errors: ["PRODUCT_NOT_REGISTERED", "STORED_RECORD_MISMATCH"],
+      "고객이 청약을 누른 경우 intent에 subscribe, 관리자 승인을 요청한 경우 requestApproval을 보냅니다. expectedVersion으로 고객이 확인한 설명서 버전을 보냅니다. 최신 버전과 다르면 거절합니다. 응답의 판매 ID는 승인 상태 조회와 청약에 씁니다. 승인 대상이면 판매사 담당자가 콘솔에서 처리합니다. 원장 거래는 subscribeSale에서 보냅니다.",
+    responses: sale(
+      "판매 ID와 승인 요청 여부(status: draft)",
+      SALE_EXAMPLES.draft,
+    ),
+    errors: [
+      "PRODUCT_NOT_REGISTERED",
+      "PRODUCT_VERSION_CHANGED",
+      "DIAGNOSIS_REQUIRED",
+      "APPROVAL_NOT_NEEDED",
+      "STORED_RECORD_MISMATCH",
+    ],
     example: {
       productId: els.id,
       customerNo: DEMO_CUSTOMER_NO,
+      expectedVersion: 1,
+      intent: "requestApproval",
     } satisfies OpenSaleRequest,
   },
   "GET /api/sales/:id": {
@@ -342,7 +358,7 @@ export const OPERATIONS: Record<string, Operation> = {
     tag: "판매 채널 연동",
     summary: "판매 건 조회",
     description:
-      "판매 건의 상태, 적합 여부, 승인 필요 여부, 처리 기록을 돌려줍니다. 청약 뒤의 상태는 원장에서 읽습니다.",
+      "판매 건의 상태, 적합 여부, 승인 여부와 최종 확인 가능 시각을 돌려줍니다. 청약 뒤의 상태는 원장에서 읽습니다.",
     responses: sale(
       "판매 건. 예시는 숙려 중인 청약입니다(status: subscribed).",
       SALE_EXAMPLES.subscribed,
@@ -354,7 +370,7 @@ export const OPERATIONS: Record<string, Operation> = {
     tag: "판매 채널 연동",
     summary: "청약",
     description:
-      "고객 키로 청약 거래를 보냅니다. 부적합이면 `higherRiskConfirmed`가 true여야 합니다. 녹취·숙려 대상이면 `recordingConsent`가 true여야 하고, 서버가 녹취록 지문을 기록합니다. 최신 회차가 3 이상이면 관리자 승인(`approveSale`)이 먼저 필요합니다. 조건이 빠지면 409와 함께 `code`로 이유를 알립니다: `DIAGNOSIS_REQUIRED`, `HIGHER_RISK_CONFIRMATION_REQUIRED`, `APPROVAL_REQUIRED`, `RECORDING_CONSENT_REQUIRED`, `PRODUCT_VERSION_CHANGED`, `SALE_ABANDONED`. 이미 청약한 건은 거래를 다시 보내지 않습니다.",
+      "FINVERIC이 샌드박스의 고객 역할 키로 청약 거래를 보냅니다. 부적합이면 `higherRiskConfirmed`에 true를 보냅니다. 녹취·숙려 대상이면 `recordingConsent`에 true를 보내며, 서버는 예시 녹취록의 지문을 기록합니다. 최신 진단이 3회차 이상이면 판매사 담당자의 승인이 필요합니다. `getSale`로 승인 상태를 확인합니다. 조건이 빠지면 409와 `code`를 돌려줍니다. 같은 판매 ID가 이미 청약 상태이면 기존 상태를 돌려줍니다.",
     responses: sale(
       "청약한 판매 건(status: subscribed)",
       SALE_EXAMPLES.subscribed,
@@ -387,7 +403,7 @@ export const OPERATIONS: Record<string, Operation> = {
     tag: "판매 채널 연동",
     summary: "최종 확인",
     description:
-      "고객 키로 가입을 확정합니다. 녹취·숙려 대상은 `coolingEndsAt`이 지나야 합니다. 그전에는 원장이 `TooEarly`로 거절합니다. 지난 직후에 부르면 블록 시각이 숙려 종료를 지날 때까지(최대 30초) 기다렸다가 보냅니다. 이미 확정한 건은 거래를 다시 보내지 않습니다.",
+      "고객이 최종 의사를 확인하면 FINVERIC이 샌드박스의 고객 역할 키로 가입 확정을 기록합니다. 녹취·숙려 대상은 `coolingEndsAt`이 지나야 합니다. 그전에는 원장이 `TooEarly`로 거절합니다. 지난 직후에 부르면 블록 시각이 숙려 종료를 지날 때까지(최대 30초) 기다렸다가 보냅니다. 같은 판매 ID가 이미 확정 상태이면 기존 상태를 돌려줍니다.",
     responses: sale(
       "확정한 판매 건(status: confirmed)",
       SALE_EXAMPLES.confirmed,
@@ -402,7 +418,8 @@ export const OPERATIONS: Record<string, Operation> = {
     operationId: "withdrawSale",
     tag: "판매 채널 연동",
     summary: "청약 철회",
-    description: "최종 확인 전의 청약을 고객 키로 철회합니다.",
+    description:
+      "고객이 최종 확인 전에 철회를 요청하면 FINVERIC이 샌드박스의 고객 역할 키로 철회를 기록합니다.",
     responses: sale(
       "철회한 판매 건(status: withdrawn)",
       SALE_EXAMPLES.withdrawn,
@@ -416,25 +433,29 @@ export const OPERATIONS: Record<string, Operation> = {
   "POST /api/sales/:id/action/abandon": {
     operationId: "abandonSale",
     tag: "판매 채널 연동",
-    summary: "신청 중단",
+    summary: "청약 전 신청 취소",
     description:
-      "청약 전 신청을 중단합니다. 원장 거래는 없습니다. 이미 기록한 진단 회차는 원장에 남습니다.",
+      "발급한 판매 ID를 청약 전에 취소합니다. 진행 중인 관리자 승인 요청도 취소됩니다. 취소는 처리 기록에 남고, 완료한 진단 회차는 원장에 남습니다.",
     responses: sale(
       "중단한 판매 건(status: abandoned)",
       SALE_EXAMPLES.abandoned,
     ),
-    errors: ["SALE_NOT_FOUND", "SALE_ALREADY_SUBSCRIBED", "STORED_RECORD_MISMATCH"],
+    errors: [
+      "SALE_NOT_FOUND",
+      "SALE_ALREADY_SUBSCRIBED",
+      "STORED_RECORD_MISMATCH",
+    ],
   },
-  "GET /api/sales/:id/export/:kind": {
+  "GET /api/sales/:id/export/receipt": {
     operationId: "exportSale",
     tag: "판매 채널 연동",
-    summary: "고객 증빙 내려받기",
+    summary: "고객 증명서 내려받기",
     description:
-      "`receipt`는 고객 증명서이고, `original`은 답변·임의값·설명서·녹취록을 담은 원본 묶음입니다. 청약한 건만 받을 수 있습니다. 응답에는 파일 내려받기 헤더(`Content-Disposition`)가 붙습니다.",
+      "청약을 원장에 기록한 건의 증명서를 받습니다. 최종 확인을 마치면 증명서에 확정 거래 해시가 포함됩니다. 응답에는 파일 내려받기 헤더(`Content-Disposition`)가 붙습니다.",
     responses: {
       200: {
-        description: "kind가 receipt면 고객 증명서, original이면 원본 묶음",
-        schema: { oneOf: [receiptSchema, originalSchema] },
+        description: "고객 증명서",
+        schema: receiptSchema,
       },
     },
     errors: [
@@ -446,6 +467,17 @@ export const OPERATIONS: Record<string, Operation> = {
   },
 
   // ── 판매사 콘솔 ───────────────────────────────────────────
+  "GET /api/sales/:id/export/original": {
+    operationId: "exportOriginal",
+    tag: "판매사 콘솔",
+    summary: "대조용 원본 내려받기",
+    description:
+      "청약한 건의 원본을 대조할 때 고객 답변, 임의값, 설명서, 녹취록을 받습니다.",
+    responses: {
+      200: { description: "대조용 원본 묶음", schema: originalSchema },
+    },
+    errors: ["SALE_NOT_FOUND", "EXPORT_NOT_ALLOWED", "STORED_RECORD_MISMATCH"],
+  },
   "POST /api/rules": {
     operationId: "registerRule",
     tag: "판매사 콘솔",
@@ -495,9 +527,9 @@ export const OPERATIONS: Record<string, Operation> = {
   "GET /api/sales": {
     operationId: "listSales",
     tag: "판매사 콘솔",
-    summary: "판매 건 목록 조회",
+    summary: "판매 건과 업무 목록 조회",
     description:
-      "모든 판매 건을 돌려줍니다. 판매사 콘솔의 판매·검토 화면이 씁니다.",
+      "판매·검토에는 scope=work를 사용합니다. 고객의 관리자 승인 요청, 승인한 건, 제출한 거래의 영수증을 기다리는 건, 원장에 기록된 판매 건을 돌려줍니다. scope를 생략하면 기존 연동에서 발급하거나 취소한 판매 ID도 조회할 수 있습니다.",
     responses: {
       200: {
         description: "판매 건 목록",
@@ -546,6 +578,17 @@ export const OPERATIONS: Record<string, Operation> = {
       "SETTLEMENT_NOT_ALLOWED",
       ...sends("InvalidState", "Unauthorized"),
     ],
+  },
+  "GET /api/signals": {
+    operationId: "listSignals",
+    tag: "판매사 콘솔",
+    summary: "위험 신호 조회",
+    description:
+      "지정 원장의 진단·판매 이벤트로 고객 가명 ID별 위험 신호를 계산합니다. 청약 전 진단만으로 생긴 신호도 포함합니다.",
+    responses: {
+      200: { description: "위험 신호 목록", schema: arrayOf(signalSchema) },
+    },
+    errors: ["SIGNALS_UNAVAILABLE"],
   },
   "GET /api/traces": {
     operationId: "listTraces",
@@ -600,7 +643,10 @@ export const OPERATIONS: Record<string, Operation> = {
       200: { description: "시뮬레이션 결과", schema: tamperResponseSchema },
     },
     errors: ["ATTEMPT_NOT_RECORDED", "RPC_UNAVAILABLE"],
-    example: { customerNo: DEMO_CUSTOMER_NO, attempt: 1 } satisfies TamperRequest,
+    example: {
+      customerNo: DEMO_CUSTOMER_NO,
+      attempt: 1,
+    } satisfies TamperRequest,
   },
 
   // ── 시스템 ────────────────────────────────────────────────
@@ -613,7 +659,8 @@ export const OPERATIONS: Record<string, Operation> = {
     responses: {
       200: { description: "모든 점검 통과", schema: healthResponseSchema },
       503: {
-        description: "점검 항목 가운데 하나 이상 실패. 본문 형식은 200과 같습니다.",
+        description:
+          "점검 항목 가운데 하나 이상 실패. 본문 형식은 200과 같습니다.",
         schema: healthResponseSchema,
         example: {
           ok: false,

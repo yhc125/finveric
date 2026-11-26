@@ -1,6 +1,6 @@
 import { SelectField } from "../../shared/SelectField.tsx";
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { Plus } from "lucide-react";
 import {
   PRODUCT_CARD_COUNT,
@@ -37,17 +37,11 @@ import type { Run } from "../App.tsx";
 import {
   DetailTableSkeletonRows,
   LoadingStatus,
-  ProfileProducts,
   RegisterNotice,
 } from "../components.tsx";
 import { productDetailPath } from "../paths.ts";
 import { ProductDetail } from "./ProductDetail.tsx";
-import {
-  activeRule,
-  gradeName,
-  latestProducts,
-  productName,
-} from "../../shared/sales.ts";
+import { activeRule, gradeName, productName } from "../../shared/sales.ts";
 
 const s = { ...ui, ...client, ...local };
 const GRADES = Object.keys(RISK_GRADE_NAMES).map(Number) as RiskGrade[];
@@ -413,19 +407,6 @@ export function Products({
   const seller =
     products.find((entry) => entry.registered)?.product.document.seller ?? "";
   const rule = activeRule(rules);
-  const profiles = (
-    <section className={`${s.panel} ${s.pad} ${s.spaced}`}>
-      <h2>투자성향별 권유 가능 상품</h2>
-      <p>
-        적용 중인 진단 기준(v{rule?.version ?? "—"})의 적합성 기준으로 나눕니다.
-        진단 기준 화면에서 기준을 바꿀 수 있습니다.
-      </p>
-      <ProfileProducts
-        rule={rule?.document}
-        products={latestProducts(products)}
-      />
-    </section>
-  );
 
   if (form)
     return (
@@ -448,7 +429,6 @@ export function Products({
               navigate(productDetailPath(id));
           }}
         />
-        {profiles}
       </>
     );
 
@@ -552,7 +532,11 @@ export function Products({
             </p>
           ))}
       </section>
-      {!loading && profiles}
+      {rule && (
+        <Link to="/rules" className={s.tableNote}>
+          진단 기준에서 투자성향별 권유 가능 상품 확인하기
+        </Link>
+      )}
     </>
   );
 }

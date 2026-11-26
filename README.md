@@ -61,7 +61,7 @@ https://github.com/user-attachments/assets/77fd7db5-8fb3-4cfe-a8da-0db06e161c40
 | client   | `/client/`  | 판매사 소비자보호 담당 (B2B) | 대시보드, 진단 기준, 상품 관리, 판매·검토, 위험 신호, 온체인 처리, API 키                                                  |
 | channel  | `/channel/` | 증권사 앱 예시 (고객 화면)   | 상품, 가입, 내 가입, 기록 확인                                                                                             |
 | auditor  | `/auditor/` | 감독기관 (B2G)               | 대시보드, 분쟁 조회, 기준 감사, 상품 감사, 위험 신호, 보고서                                                               |
-| API 문서 | `/api/docs` | 판매사 개발자                | 분류별 API, 요청 예시(curl·Node.js·Python), 응답 예시, API별 오류 표, 오류 코드 표. OpenAPI 3.1 원문은 `/api/openapi.json` |
+| API 문서 | `/api/docs` | 판매 채널 개발자            | 판매 채널 연동 API, 요청 예시(curl·Node.js·Python), 응답 형식과 오류. OpenAPI 3.1 원문은 `/api/openapi.json` |
 
 | 진입 화면                                                       | 진단 기준 (client)                                    |
 | --------------------------------------------------------------- | ----------------------------------------------------- |

@@ -6,17 +6,21 @@ import {
 } from "../../../scripts/environment.ts";
 import { proofKeyHash } from "../../../scripts/artifacts.ts";
 import {
+  computeSignals,
   DEMO_CUSTOMER_NO,
   type Deployment,
   type ProductDocument,
   type RuleDocument,
 } from "@finveric/core";
+import { createLedgerSnapshotReader } from "@finveric/core/ledger";
 import type {
   DiagnoseRequest,
   ApproveRequest,
   OpenSaleRequest,
   SaleAction,
+  SaleListQuery,
   SaleView,
+  SignalDto,
   SubscribeRequest,
   TamperRequest,
 } from "@finveric/core/api";
@@ -56,6 +60,10 @@ export class FundService {
   readonly dep: Deployment;
   readonly client;
   readonly repository: SaleRepository;
+  private readonly readLedgerSnapshot: ReturnType<
+    typeof createLedgerSnapshotReader
+  >;
+  private signalRequest?: Promise<SignalDto[]>;
 
   constructor(
     options: {
@@ -71,6 +79,10 @@ export class FundService {
       chain: this.env.chain,
       transport: http(this.env.rpcUrl),
     });
+    this.readLedgerSnapshot = createLedgerSnapshotReader(
+      { ...this.dep, rpcUrl: this.env.rpcUrl },
+      this.client,
+    );
     this.repository = new SaleRepository(
       options.store ??
         (options.file
@@ -178,6 +190,16 @@ export class FundService {
   customer(customerNo: string) {
     return customers.customer(this, customerNo);
   }
+  /** 같은 원장 조회를 공유하고, 다음 요청에서는 새 블록부터 읽는다. */
+  signals(): Promise<SignalDto[]> {
+    return (this.signalRequest ??= this.readLedgerSnapshot()
+      .then(computeSignals, () => {
+        throw new CodedError("SIGNALS_UNAVAILABLE");
+      })
+      .finally(() => {
+        this.signalRequest = undefined;
+      }));
+  }
   diagnose(customerNo: string, request: DiagnoseRequest) {
     return customers.diagnose(this, customerNo, request);
   }
@@ -232,12 +254,24 @@ export class FundService {
   publicSale(record: ReturnType<FundService["find"]>) {
     return records.publicSale(this, record);
   }
-  publicSales(customerNo?: string) {
+  async publicSales(customerNo?: string, scope?: SaleListQuery["scope"]) {
     const customerRef = customerNo && customers.customerRef(this, customerNo);
     const sales = customerRef
       ? this.sales.filter((sale) => sale.customerRef === customerRef)
       : this.sales;
-    return Promise.all(sales.map((sale) => this.publicSale(sale)));
+    const records = await Promise.all(
+      sales.map((sale) => this.publicSale(sale)),
+    );
+    return scope === "work"
+      ? records.filter(
+          (sale) =>
+            !!sale.chain ||
+            (sale.status === "draft" &&
+              (sale.approvalRequested ||
+                sale.approvedAttempt !== undefined ||
+                sale.submissionPending)),
+        )
+      : records;
   }
   publicTraces() {
     return records.publicTraces(this);

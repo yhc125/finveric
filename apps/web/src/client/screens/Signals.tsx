@@ -1,11 +1,6 @@
-import { useState } from "react";
-import {
-  SIGNAL_KINDS,
-  SIGNAL_LABELS,
-  SIGNAL_THRESHOLDS,
-  type SignalKind,
-} from "@finveric/core";
-import type { CustomerDto, ProductEntryDto } from "@finveric/core/api";
+import { useLocation, useSearchParams } from "react-router";
+import { SIGNAL_KINDS, SIGNAL_LABELS, SIGNAL_THRESHOLDS } from "@finveric/core";
+import type { ProductEntryDto, SignalDto } from "@finveric/core/api";
 import type { LoadState } from "../../shared/api.ts";
 import { Button } from "../../shared/button.tsx";
 import {
@@ -14,7 +9,7 @@ import {
   Facts,
   FilterChip,
   DetailColumn,
-  Heading,
+  Notice,
   TableScroll,
   Skeleton,
 } from "../../shared/components.tsx";
@@ -29,7 +24,6 @@ import {
   SaleRow,
   DetailTableSkeletonRows,
 } from "../components.tsx";
-import { saleSignals } from "../signals.ts";
 
 const s = { ...ui, ...client, ...local };
 
@@ -38,16 +32,23 @@ export function Signals({
   load,
   sales,
   products,
-  customer,
+  signals,
+  refresh,
 }: {
   load: LoadState;
   sales: Sale[];
   products: ProductEntryDto[];
-  customer?: CustomerDto;
+  signals: SignalDto[];
+  refresh: () => unknown;
 }) {
-  const [kind, setKind] = useState<SignalKind | "">("");
+  const { search } = useLocation();
+  const [params, setParams] = useSearchParams();
+  const kind = SIGNAL_KINDS.find((value) => value === params.get("kind")) ?? "";
+  const setKind = (value: string) =>
+    setParams(value ? { view: "signals", kind: value } : { view: "signals" }, {
+      replace: true,
+    });
   const loading = load === "loading";
-  const signals = saleSignals(customer, sales);
   const shown = signals.filter((signal) => !kind || signal.kind === kind);
   /** 신호에 판매 ID가 없으면(재진단 반복, 짧은 간격 재진단) 그 고객의 가장 최근 판매 건을 연다. */
   const saleFor = (customerRef: string, saleId?: string) =>
@@ -59,7 +60,14 @@ export function Signals({
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   return (
     <>
-      <Heading title="위험 신호" />
+      {load === "failed" && (
+        <Notice tone="warning">
+          <p>위험 신호를 새로 불러오지 못했습니다.</p>
+          <Button variant="outline" onClick={refresh}>
+            다시 읽기
+          </Button>
+        </Notice>
+      )}
       <LoadingStatus loading={loading}>
         위험 신호를 불러오고 있습니다.
       </LoadingStatus>
@@ -114,6 +122,7 @@ export function Signals({
                     <SaleRow
                       key={`${signal.kind}:${signal.saleId ?? signal.customerRef}:${index}`}
                       saleId={sale?.id}
+                      search={search}
                       label={
                         sale &&
                         `판매 건 상세 · ${SIGNAL_LABELS[signal.kind]} · ${short(sale.id)}`

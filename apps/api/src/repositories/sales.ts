@@ -48,6 +48,7 @@ export type StoredSale = {
   amount: number;
   createdAt: string;
   abandonedAt?: string;
+  approvalRequested?: boolean;
   approval?: { attempt: number; signature: Hex };
   approvalReviews?: (ApproveRequest & {
     attempt: number;

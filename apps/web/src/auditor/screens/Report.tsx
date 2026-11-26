@@ -1,15 +1,9 @@
-import { SelectField } from "../../shared/SelectField.tsx";
-import { useId, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
-import { Download, FileText } from "lucide-react";
+import { useState } from "react";
+import { Link } from "react-router";
+import { FileText } from "lucide-react";
 import { SIGNAL_KINDS, SIGNAL_LABELS, type Deployment } from "@finveric/core";
 import { ledgerReadCode } from "@finveric/core/ledger";
-import {
-  isValidSaleId,
-  OUTCOME_LABELS,
-  type VerifyOutcome,
-} from "@finveric/core/verify";
-import { saveFile } from "../../shared/api.ts";
+import { OUTCOME_LABELS, type VerifyOutcome } from "@finveric/core/verify";
 import { Button } from "../../shared/button.tsx";
 import {
   Disclosure,
@@ -18,7 +12,6 @@ import {
   DetailRow,
   Facts,
   Notice,
-  FieldError,
   Stat,
   TableScroll,
   type Tone,
@@ -27,21 +20,9 @@ import { dateTime } from "../../shared/format.ts";
 import ui from "../../shared/ui.module.css";
 import local from "../auditor.module.css";
 import { Ratio } from "../components.tsx";
-import {
-  ledgerNotice,
-  productName,
-  salePath,
-  short,
-  STATUS_LABELS,
-  STATUS_TONES,
-} from "../format.ts";
-import {
-  buildReport,
-  reportCsv,
-  saveText,
-  type AuditReport,
-  type ReportScope,
-} from "../report.ts";
+import { ledgerNotice, salePath, short } from "../format.ts";
+import { buildReport, type AuditReport } from "../report.ts";
+import { ReportDownloads } from "../ReportDownloads.tsx";
 import type { Ledger } from "../useLedger.ts";
 
 const s = { ...ui, ...local };
@@ -59,12 +40,6 @@ export function Report({
   deployment?: Deployment;
   ledger: Ledger;
 }) {
-  const [params] = useSearchParams();
-  const initialSale = params.get("sale") ?? "";
-  const [kind, setKind] = useState<ReportScope["kind"]>(
-    initialSale ? "sale" : "confirmed",
-  );
-  const [saleId, setSaleId] = useState(initialSale);
   const [generated, setReport] = useState<{
     deployment: Deployment;
     report: AuditReport;
@@ -74,31 +49,14 @@ export function Report({
   const [retry, setRetry] = useState(false);
   const [loading, setLoading] = useState(false);
   const busy = loading && !!progress && progress[0] < progress[1];
-  const [saleError, setSaleError] = useState("");
-  const saleSelect = useRef<HTMLButtonElement>(null);
-  const saleErrorId = useId();
-  const sales = [...(ledger.snapshot?.sales ?? [])].reverse();
-  const confirmed = sales.filter((sale) => sale.status === "confirmed").length;
+  const confirmed = ledger.snapshot?.sales.filter(
+    (sale) => sale.status === "confirmed",
+  ).length;
   const report =
     generated?.deployment === deployment ? generated?.report : undefined;
-  const resetError = () => {
-    setError("");
-    setSaleError("");
-    setRetry(false);
-  };
-
   const build = async () => {
-    if (loading || !deployment || ledger.needsConfiguration) return;
-    const selectedSale = saleId.trim();
-    if (kind === "sale" && !isValidSaleId(selectedSale)) {
-      setSaleError(
-        selectedSale
-          ? "이 판매 ID를 확인할 수 없습니다. 원장의 판매 건을 선택하세요."
-          : "판매 건을 선택하세요.",
-      );
-      saleSelect.current?.focus();
+    if (loading || !deployment || ledger.needsConfiguration || confirmed === 0)
       return;
-    }
     setLoading(true);
     setReport(undefined);
     setError("");
@@ -110,9 +68,7 @@ export function Report({
         setRetry(!read.needsConfiguration);
         return;
       }
-      const scope: ReportScope =
-        kind === "sale" ? { kind, saleId: selectedSale } : { kind };
-      const report = await buildReport(deployment, read, scope, (done, total) =>
+      const report = await buildReport(deployment, read, (done, total) =>
         setProgress([done, total]),
       );
       setReport({ deployment, report });
@@ -128,9 +84,6 @@ export function Report({
       setLoading(false);
     }
   };
-  const fileName = (extension: string) =>
-    `finveric-audit-report-${report?.scope.kind === "sale" ? `sale-${report.scope.saleId.slice(0, 10)}` : "confirmed"}-${report?.generatedAt.replace(/[:.]/g, "-")}.${extension}`;
-
   return (
     <div className={s.page}>
       <div className={s.verifyGrid}>
@@ -141,97 +94,23 @@ export function Report({
             void build();
           }}
         >
-          <h2>보고서 범위</h2>
-          <fieldset className={s.sources}>
-            <legend>대조할 판매 건</legend>
-            <label>
-              <input
-                type="radio"
-                name="scope"
-                checked={kind === "confirmed"}
-                disabled={loading}
-                onChange={() => {
-                  setKind("confirmed");
-                  resetError();
-                }}
-              />
-              <span>
-                가입 확정 전체
-                <small>
-                  {ledger.snapshot
-                    ? `원장의 가입 확정 ${confirmed}건`
-                    : "원장을 읽으면 건수를 보여 줍니다."}
-                </small>
-              </span>
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="scope"
-                checked={kind === "sale"}
-                disabled={loading}
-                onChange={() => {
-                  setKind("sale");
-                  resetError();
-                }}
-              />
-              <span>
-                판매 건 하나
-                <small>확정 전이거나 철회한 건도 고를 수 있습니다.</small>
-              </span>
-            </label>
-          </fieldset>
-          {kind === "sale" && (
-            <SelectField
-              label="판매 건"
-              placeholder={
-                sales.length
-                  ? "판매 건을 선택하세요"
-                  : "원장에 판매 건이 없습니다"
-              }
-              ref={saleSelect}
-              value={saleId}
-              disabled={sales.length === 0}
-              blocked={loading}
-              clearable
-              aria-invalid={saleError ? true : undefined}
-              aria-describedby={saleErrorId}
-              options={[
-                ...(saleId && !sales.some((sale) => sale.saleId === saleId)
-                  ? [
-                      {
-                        value: saleId,
-                        label: `${short(saleId)} · 원장에서 확인 전`,
-                      },
-                    ]
-                  : []),
-                ...sales.map((sale) => ({
-                  value: sale.saleId,
-                  label: productName(
-                    ledger.snapshot,
-                    sale.productId,
-                    sale.productVersion,
-                  ),
-                  reference: short(sale.saleId),
-                  status: {
-                    label: STATUS_LABELS[sale.status],
-                    tone: STATUS_TONES[sale.status],
-                  },
-                })),
-              ]}
-              onChange={(value) => {
-                setSaleId(value);
-                resetError();
-              }}
-            />
-          )}
-          {kind === "sale" && (
-            <FieldError id={saleErrorId}>{saleError}</FieldError>
-          )}
+          <h2>가입 확정 전체</h2>
+          <p className={s.intro}>
+            {confirmed === undefined
+              ? "원장을 읽으면 건수를 표시합니다."
+              : confirmed === 0
+                ? "원장에 가입을 확정한 판매 건이 없습니다."
+                : `원장에서 가입을 확정한 ${confirmed.toLocaleString("ko-KR")}건을 대조합니다.`}
+          </p>
           <Button
             type="submit"
             busy={loading}
-            blocked={!deployment || ledger.needsConfiguration}
+            blocked={
+              !deployment ||
+              ledger.needsConfiguration ||
+              confirmed === undefined ||
+              confirmed === 0
+            }
           >
             {loading ? (
               progress ? (
@@ -247,8 +126,8 @@ export function Report({
             )}
           </Button>
           <p className={s.small}>
-            원본 파일 없이 원장 기록만 대조합니다. 제출 자료와 대조하려면 분쟁
-            조회를 쓰세요.
+            한 건을 대조하거나 제출 자료를 확인하려면{" "}
+            <Link to="/disputes">분쟁 조회</Link>에서 확인하세요.
           </p>
         </form>
         <section className={`${s.panel} ${s.pad}`}>
@@ -266,17 +145,7 @@ export function Report({
             )}
           </div>
           {report ? (
-            <ReportSummary
-              report={report}
-              json={() => saveFile(report, fileName("json"))}
-              csv={() =>
-                saveText(
-                  reportCsv(report),
-                  fileName("csv"),
-                  "text/csv;charset=utf-8",
-                )
-              }
-            />
+            <ReportSummary report={report} />
           ) : (
             !(error || ledger.error) && (
               <>
@@ -284,7 +153,7 @@ export function Report({
                 <p className={s.intro}>
                   {busy
                     ? "판매 건마다 원장 기록을 대조하고 있습니다."
-                    : "범위를 고르고 보고서 만들기를 누르세요."}
+                    : "보고서 만들기를 누르면 일괄 대조 결과를 표시합니다."}
                 </p>
               </>
             )
@@ -298,31 +167,14 @@ export function Report({
 }
 
 /** 보고서 요약: 대조 결과 수치, 일치 비율, 원장 요약. 오른쪽 패널에 둔다. */
-function ReportSummary({
-  report,
-  json,
-  csv,
-}: {
-  report: AuditReport;
-  json: () => void;
-  csv: () => void;
-}) {
+function ReportSummary({ report }: { report: AuditReport }) {
   const { summary, source } = report;
   const total = report.sales.length;
   return (
     <>
       <div className={s.row}>
         <h2>보고서 미리보기</h2>
-        <div className={s.actions}>
-          <Button variant="outline" type="button" onClick={json}>
-            <Download size={16} />
-            JSON 내려받기
-          </Button>
-          <Button variant="outline" type="button" onClick={csv}>
-            <Download size={16} />
-            CSV 내려받기
-          </Button>
-        </div>
+        <ReportDownloads getReport={() => report} />
       </div>
       <div className={`${s.stats} ${s.reportStats}`}>
         <Stat label="대조한 판매 건" value={total} unit="건" />
@@ -344,12 +196,7 @@ function ReportSummary({
       />
       <Facts
         rows={[
-          [
-            "범위",
-            report.scope.kind === "sale"
-              ? `판매 건 하나 · ${short(report.scope.saleId)}`
-              : `가입 확정 전체 · ${total}건`,
-          ],
+          ["범위", `가입 확정 전체 · ${total}건`],
           [
             "원장 요약",
             `기준 ${summary.rules}개 버전 · 상품 설명서 ${summary.productVersions}개 버전 · 진단 ${summary.diagnoses}회 · 고객 가명 ID ${summary.customers}명`,

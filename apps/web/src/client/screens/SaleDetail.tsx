@@ -21,6 +21,7 @@ import {
 import { focusElement } from "../../shared/focus.ts";
 import { dateTime, won } from "../../shared/format.ts";
 import { StatusBadge } from "../../shared/sale-components.tsx";
+import { saleTracePath } from "../paths.ts";
 import {
   awaitingApproval,
   nowSeconds,
@@ -43,7 +44,6 @@ import local from "./operations.module.css";
 const s = { ...ui, ...local };
 
 function approvalText(sale: Sale) {
-  if (sale.status === "abandoned") return "—";
   const attempt = sale.chain?.attempt ?? sale.latestAttempt;
   if (!sale.approvalRequired) return `대상 아님 · ${attempt || 0}회차`;
   if (sale.chain) return sale.chain.approved ? `승인 · ${attempt}회차` : "없음";
@@ -144,7 +144,11 @@ export function SaleDetail({
       <DetailHeading
         title="판매 건 상세"
         backTo={{ pathname: "/review", search }}
-        backLabel="판매 건 목록"
+        backLabel={
+          new URLSearchParams(search).get("view") === "signals"
+            ? "위험 신호 목록"
+            : "판매 건 목록"
+        }
       />
       <LoadingStatus loading={load === "loading"}>
         판매 건을 불러오고 있습니다.
@@ -367,7 +371,7 @@ export function SaleDetail({
               </Button>
             )}
             <Button variant="outline" asChild>
-              <Link to="/chain">처리 근거 보기</Link>
+              <Link to={saleTracePath(sale.id, search)}>처리 근거 보기</Link>
             </Button>
           </section>
           <section className={`${s.panel} ${s.pad}`}>

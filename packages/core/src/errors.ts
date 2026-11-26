@@ -59,7 +59,7 @@ export const ERROR_TYPES = {
   needs_approval: {
     status: [409],
     meaning: "3회차 이상 진단한 고객입니다.",
-    action: "판매사 관리자 승인(`approveSale`)을 받은 뒤 청약합니다.",
+    action: "판매사 담당자가 콘솔에서 승인한 뒤 청약합니다.",
   },
   needs_recording: {
     status: [409],
@@ -291,7 +291,7 @@ const CODES = {
     message:
       "관리자 승인이 필요합니다. 3회차 이상 진단한 고객이므로 소비자보호 담당이 회차 이력을 보고 승인한 뒤 청약하세요.",
     description:
-      "최신 회차가 3 이상인데 그 회차의 관리자 승인(`approveSale`)이 없습니다. 고객이 다시 진단하면 새로 승인해야 합니다.",
+      "최신 회차가 3 이상이고 판매사 담당자의 승인이 필요합니다. 고객이 다시 진단하면 새 회차로 승인해야 합니다.",
   },
   RECORDING_CONSENT_REQUIRED: {
     type: "needs_recording",
@@ -302,8 +302,8 @@ const CODES = {
   PRODUCT_VERSION_CHANGED: {
     type: "product_changed",
     message:
-      "상품 설명서가 새 버전으로 바뀌었습니다. 이 신청을 중단하고 새 버전으로 다시 신청하세요.",
-    description: "신청 뒤 그 상품의 새 설명서 버전이 원장에 등록됐습니다.",
+      "상품 설명서가 새 버전으로 바뀌었습니다. 최신 설명서를 확인하고 다시 신청하세요.",
+    description: "고객이 확인한 설명서 버전과 원장의 최신 버전이 다릅니다.",
   },
   PRODUCT_EDIT_VERSION_CHANGED: {
     type: "wrong_state",
@@ -449,6 +449,12 @@ const CODES = {
       "원장 시뮬레이션을 하지 못했습니다. RPC 연결을 확인한 뒤 다시 요청하세요.",
     description:
       "원장 호출을 시뮬레이션하는 동안 RPC가 원장 거절이 아닌 오류로 실패했습니다.",
+  },
+  SIGNALS_UNAVAILABLE: {
+    type: "unavailable",
+    message:
+      "위험 신호를 불러오지 못했습니다. 연결을 확인하고 다시 읽기를 누르세요.",
+    description: "위험 신호 계산에 필요한 원장 이벤트를 읽지 못했습니다.",
   },
   TRANSACTION_NOT_SUBMITTED: {
     type: "unavailable",
