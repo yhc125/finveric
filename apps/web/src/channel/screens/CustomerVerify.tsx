@@ -11,6 +11,7 @@ import type {
 } from "@finveric/core/verify";
 import { Button } from "../../shared/button.tsx";
 import {
+  Disclosure,
   Badge,
   Facts,
   FieldError,
@@ -329,8 +330,7 @@ export function CustomerVerify({
             </div>
           </div>
           {result.outcome !== "missing" && (
-            <details className={s.tech}>
-              <summary>기술 정보 보기</summary>
+            <Disclosure className={s.tech} label="기술 정보 보기">
               <Facts
                 rows={[
                   ["증명서 번호", <code>{result.saleId}</code>],
@@ -363,7 +363,7 @@ export function CustomerVerify({
                   </li>
                 ))}
               </ul>
-            </details>
+            </Disclosure>
           )}
         </section>
       )}

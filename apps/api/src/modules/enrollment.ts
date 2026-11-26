@@ -21,6 +21,7 @@ import {
   readDiagnosis,
   readLatestProductVersion,
   readSale,
+  waitForBlockTime,
 } from "../gateways/ledger.ts";
 import { randomField } from "../gateways/proofs.ts";
 import { customerRef } from "./customers.ts";
@@ -150,11 +151,19 @@ export async function subscribe(
   );
 }
 
-/** 최종 확인. 녹취·숙려 대상이면 원장이 최소 경과 시간 전의 확인을 거절한다(TooEarly). */
+/**
+ * 최종 확인. 녹취·숙려 대상이면 원장이 최소 경과 시간 전의 확인을 거절한다(TooEarly).
+ * 숙려가 끝난 직후의 확인은 블록 시각이 숙려 종료를 지날 때까지 기다렸다가 보낸다.
+ */
 export async function confirm(svc: FundService, record: StoredSale) {
   const state = await readSale(svc, record.id);
   if (state.status === 2) return;
   if (state.status !== 1) throw new CodedError("CONFIRM_NOT_ALLOWED");
+  if (state.protectedSale)
+    await waitForBlockTime(
+      svc,
+      state.subscribedAt + BigInt(svc.dep.coolingPeriod),
+    );
   await send(svc, "customer", "confirm", [BigInt(record.id)], {
     event: "EnrollmentConfirmed",
     match: (log) =>

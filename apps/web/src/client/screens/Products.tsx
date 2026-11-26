@@ -1,3 +1,4 @@
+import { SelectField } from "../../shared/SelectField.tsx";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Plus } from "lucide-react";
@@ -127,6 +128,7 @@ function ProductForm({
   );
   const version =
     Math.max(0, ...sameCode.map((entry) => entry.product.version)) + 1;
+  const stale = newVersion && version > base.version + 1;
   const document = { ...doc, version };
   const errors = validateProduct(document);
   const text = (
@@ -147,10 +149,16 @@ function ProductForm({
     </label>
   );
   const submit = async () => {
-    const entry = await run("상품 설명서를 원장에 등록하고 있습니다", () =>
-      api<ProductEntryDto>("/products", {
-        document,
-      } satisfies RegisterProductRequest),
+    const entry = await run(
+      "상품 설명서를 원장에 등록하고 있습니다",
+      () =>
+        api<ProductEntryDto>("/products", {
+          document,
+          ...(newVersion ? { expectedVersion: base.version } : {}),
+        } satisfies RegisterProductRequest),
+      newVersion
+        ? "상품 설명서의 새 버전을 등록했습니다."
+        : "상품을 등록했습니다.",
     );
     if (entry) registered(entry.product.id);
   };
@@ -183,38 +191,32 @@ function ProductForm({
               }
             />
           </label>
-          <label className={s.field}>
-            상품 유형
-            <select
-              value={doc.type}
-              onChange={(e) =>
-                edit((draft) => {
-                  draft.type = e.target.value as ProductType;
-                })
-              }
-            >
-              {PRODUCT_TYPES.map((type) => (
-                <option key={type}>{type}</option>
-              ))}
-            </select>
-          </label>
-          <label className={s.field}>
-            위험등급
-            <select
-              value={doc.riskGrade}
-              onChange={(e) =>
-                edit((draft) => {
-                  draft.riskGrade = Number(e.target.value) as RiskGrade;
-                })
-              }
-            >
-              {GRADES.map((grade) => (
-                <option key={grade} value={grade}>
-                  {gradeName(grade)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SelectField
+            label="상품 유형"
+            value={doc.type}
+            options={PRODUCT_TYPES.map((type) => ({
+              value: type,
+              label: type,
+            }))}
+            onChange={(value) =>
+              edit((draft) => {
+                draft.type = value as ProductType;
+              })
+            }
+          />
+          <SelectField
+            label="위험등급"
+            value={String(doc.riskGrade)}
+            options={GRADES.map((grade) => ({
+              value: String(grade),
+              label: gradeName(grade),
+            }))}
+            onChange={(value) =>
+              edit((draft) => {
+                draft.riskGrade = Number(value) as RiskGrade;
+              })
+            }
+          />
         </div>
         {!newVersion && sameCode.length > 0 && (
           <Notice>
@@ -313,7 +315,12 @@ function ProductForm({
       <aside className={s.editorAside}>
         <section className={`${s.panel} ${s.pad}`}>
           <h2>검사</h2>
-          {!showErrors && errors.length ? (
+          {stale ? (
+            <Notice tone="warning">
+              새 상품 버전이 등록됐습니다. 편집을 닫고 최신 버전을 확인한 뒤
+              다시 수정하세요.
+            </Notice>
+          ) : !showErrors && errors.length ? (
             <Notice>
               입력하면 검사 결과를 여기에 보여 줍니다. 원장에 등록을 누르면 빠진
               항목을 모두 보여 줍니다.
@@ -345,12 +352,16 @@ function ProductForm({
           />
           <Button
             busy={busy}
-            blocked={showErrors && errors.length > 0}
+            blocked={
+              stale ||
+              (newVersion && !changed) ||
+              (showErrors && errors.length > 0)
+            }
             onClick={() =>
               errors.length ? setShowErrors(true) : void submit()
             }
           >
-            원장에 등록
+            {newVersion ? "새 버전 등록" : "원장에 등록"}
           </Button>
           <p className={s.small}>
             원장은 설명서 원문으로 지문을 다시 계산합니다. 위험등급과
@@ -419,7 +430,12 @@ export function Products({
   if (form)
     return (
       <>
-        <Heading title="상품 설명서 편집" />
+        <Heading
+          title={selected ? "상품 수정" : "새 상품 만들기"}
+          description={
+            selected ? "수정한 설명서는 새 버전으로 등록합니다." : undefined
+          }
+        />
         <ProductForm
           base={form}
           existing={products}
@@ -443,7 +459,7 @@ export function Products({
         latest={group?.latest}
         versions={group?.versions ?? []}
         busy={busy}
-        newVersion={setForm}
+        onEdit={setForm}
       />
     );
 
@@ -451,7 +467,7 @@ export function Products({
     <>
       <Heading
         title="상품 관리"
-        description="등록한 설명서를 바꾸려면 새 버전을 등록하세요."
+        description="상품 상세에서 설명서를 수정하고 버전 이력을 확인할 수 있습니다."
       >
         <Button blocked={busy} onClick={() => setForm(blankProduct(seller))}>
           <Plus size={16} />새 상품 만들기

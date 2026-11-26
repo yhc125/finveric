@@ -7,7 +7,13 @@ import type {
 } from "@finveric/core/api";
 import type { LoadState } from "../../shared/api.ts";
 import { Button } from "../../shared/button.tsx";
-import { Empty, Facts, Heading, Notice } from "../../shared/components.tsx";
+import {
+  Disclosure,
+  Empty,
+  Facts,
+  Heading,
+  Notice,
+} from "../../shared/components.tsx";
 import { dateTime, won } from "../../shared/format.ts";
 import { StatusBadge } from "../../shared/sale-components.tsx";
 import {
@@ -206,8 +212,7 @@ function RecordDetail({
             있어요.
           </Notice>
         )}
-        <details>
-          <summary>기술 정보 보기</summary>
+        <Disclosure label="기술 정보 보기">
           <Facts
             rows={[
               [
@@ -221,7 +226,7 @@ function RecordDetail({
               ["고객 가명 ID", <code>{sale.customerRef}</code>],
             ]}
           />
-        </details>
+        </Disclosure>
       </section>
       <section className={`${s.panel} ${s.pad}`}>
         <h2>가입 서류</h2>

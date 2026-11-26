@@ -1,5 +1,6 @@
 import type { ProductEntryDto } from "@finveric/core/api";
 import type { ProductDocument } from "@finveric/core";
+import { Pencil } from "lucide-react";
 import type { LoadState } from "../../shared/api.ts";
 import { Button } from "../../shared/button.tsx";
 import { Badge, Empty, Skeleton } from "../../shared/components.tsx";
@@ -63,13 +64,13 @@ export function ProductDetail({
   latest,
   versions,
   busy,
-  newVersion,
+  onEdit,
 }: {
   load: LoadState;
   latest?: ProductEntryDto;
   versions: ProductEntryDto[];
   busy: boolean;
-  newVersion: (document: ProductDocument) => void;
+  onEdit: (document: ProductDocument) => void;
 }) {
   const heading = (
     <>
@@ -77,7 +78,17 @@ export function ProductDetail({
         title="판매 상품 상세"
         backTo={PRODUCT_LIST_PATH}
         backLabel="판매 상품 목록"
-      />
+      >
+        {latest?.registered && (
+          <Button
+            blocked={busy}
+            onClick={() => onEdit(latest.product.document)}
+          >
+            <Pencil size={16} aria-hidden="true" />
+            상품 수정
+          </Button>
+        )}
+      </DetailHeading>
       <LoadingStatus loading={load === "loading"}>
         상품을 불러오고 있습니다.
       </LoadingStatus>
@@ -156,13 +167,6 @@ export function ProductDetail({
               </li>
             ))}
           </ul>
-          <Button
-            variant="outline"
-            blocked={busy || !latest.registered}
-            onClick={() => newVersion(document)}
-          >
-            새 버전 만들기
-          </Button>
           <p className={s.small}>
             새 버전을 등록하면 다음 청약부터 새 설명서를 씁니다. 청약한 판매
             건은 그때의 버전으로 남습니다.

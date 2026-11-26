@@ -7,7 +7,12 @@ import {
   type ReactNode,
 } from "react";
 import { Link, type To } from "react-router";
-import { AlertTriangle, ChevronRight, FileText } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+} from "lucide-react";
 import { Button } from "./button.tsx";
 import { HeadingTools } from "./heading-tools.ts";
 import s from "./ui.module.css";
@@ -56,6 +61,27 @@ export function Notice({
       <AlertTriangle size={17} />
       <div>{children}</div>
     </div>
+  );
+}
+export function Disclosure({
+  label,
+  className,
+  children,
+}: {
+  label: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <details
+      className={className ? `${s.disclosure} ${className}` : s.disclosure}
+    >
+      <summary>
+        <span>{label}</span>
+        <ChevronDown size={18} aria-hidden="true" />
+      </summary>
+      <div className={s.disclosureContent}>{children}</div>
+    </details>
   );
 }
 export function Heading({

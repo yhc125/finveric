@@ -1,3 +1,4 @@
+import { SelectField } from "../../shared/SelectField.tsx";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import {
@@ -8,6 +9,7 @@ import {
 } from "@finveric/core";
 import type { LedgerProduct, LedgerSnapshot } from "@finveric/core/ledger";
 import {
+  Disclosure,
   Badge,
   Count,
   DetailColumn,
@@ -304,31 +306,25 @@ function ProductDetail({
             것입니다.
           </Notice>
         )}
-        <details>
-          <summary>등록 원문 보기 (이벤트 ProductRegistered)</summary>
+        <Disclosure label="등록 원문 보기 (이벤트 ProductRegistered)">
           <pre>{selected.document}</pre>
-        </details>
+        </Disclosure>
       </section>
       {document && <ProductDocumentView document={document} />}
       <section className={`${s.panel} ${s.pad} ${s.section}`}>
         <div className={s.row}>
           <h2>버전 사이의 차이</h2>
           {previous && (
-            <label className={s.compare}>
-              비교할 버전
-              <select
-                value={previous.version}
-                onChange={(e) =>
-                  setBase(e.target.value, String(selected.version))
-                }
-              >
-                {others.map((entry) => (
-                  <option key={entry.version} value={entry.version}>
-                    v{entry.version}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField
+              className={s.compare}
+              label="비교할 버전"
+              value={String(previous.version)}
+              options={others.map((entry) => ({
+                value: String(entry.version),
+                label: `v${entry.version}`,
+              }))}
+              onChange={(value) => setBase(value, String(selected.version))}
+            />
           )}
         </div>
         {!current ? (

@@ -1,3 +1,4 @@
+import { SelectField } from "../../shared/SelectField.tsx";
 import { useId, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Download, FileText } from "lucide-react";
@@ -11,6 +12,7 @@ import {
 import { saveFile } from "../../shared/api.ts";
 import { Button } from "../../shared/button.tsx";
 import {
+  Disclosure,
   Badge,
   DetailColumn,
   DetailRow,
@@ -31,6 +33,7 @@ import {
   salePath,
   short,
   STATUS_LABELS,
+  STATUS_TONES,
 } from "../format.ts";
 import {
   buildReport,
@@ -72,7 +75,7 @@ export function Report({
   const [loading, setLoading] = useState(false);
   const busy = loading && !!progress && progress[0] < progress[1];
   const [saleError, setSaleError] = useState("");
-  const saleSelect = useRef<HTMLSelectElement>(null);
+  const saleSelect = useRef<HTMLButtonElement>(null);
   const saleErrorId = useId();
   const sales = [...(ledger.snapshot?.sales ?? [])].reverse();
   const confirmed = sales.filter((sale) => sale.status === "confirmed").length;
@@ -179,37 +182,48 @@ export function Report({
             </label>
           </fieldset>
           {kind === "sale" && (
-            <label className={s.field}>
-              판매 건
-              <select
-                ref={saleSelect}
-                value={saleId}
-                disabled={loading || sales.length === 0}
-                aria-invalid={saleError ? true : undefined}
-                aria-describedby={saleErrorId}
-                onChange={(e) => {
-                  setSaleId(e.target.value);
-                  resetError();
-                }}
-              >
-                <option value="">판매 건을 선택하세요</option>
-                {saleId && !sales.some((sale) => sale.saleId === saleId) && (
-                  <option value={saleId}>
-                    {short(saleId)} · 원장에서 확인 전
-                  </option>
-                )}
-                {sales.map((sale) => (
-                  <option key={sale.saleId} value={sale.saleId}>
-                    {productName(
-                      ledger.snapshot,
-                      sale.productId,
-                      sale.productVersion,
-                    )}{" "}
-                    · {short(sale.saleId)} · {STATUS_LABELS[sale.status]}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField
+              label="판매 건"
+              placeholder={
+                sales.length
+                  ? "판매 건을 선택하세요"
+                  : "원장에 판매 건이 없습니다"
+              }
+              ref={saleSelect}
+              value={saleId}
+              disabled={sales.length === 0}
+              blocked={loading}
+              clearable
+              aria-invalid={saleError ? true : undefined}
+              aria-describedby={saleErrorId}
+              options={[
+                ...(saleId && !sales.some((sale) => sale.saleId === saleId)
+                  ? [
+                      {
+                        value: saleId,
+                        label: `${short(saleId)} · 원장에서 확인 전`,
+                      },
+                    ]
+                  : []),
+                ...sales.map((sale) => ({
+                  value: sale.saleId,
+                  label: productName(
+                    ledger.snapshot,
+                    sale.productId,
+                    sale.productVersion,
+                  ),
+                  reference: short(sale.saleId),
+                  status: {
+                    label: STATUS_LABELS[sale.status],
+                    tone: STATUS_TONES[sale.status],
+                  },
+                })),
+              ]}
+              onChange={(value) => {
+                setSaleId(value);
+                resetError();
+              }}
+            />
           )}
           {kind === "sale" && (
             <FieldError id={saleErrorId}>{saleError}</FieldError>
@@ -354,8 +368,10 @@ function ReportSummary({
           ["만든 시각", dateTime(report.generatedAt)],
         ]}
       />
-      <details className={s.technicalDetails}>
-        <summary>대조에 사용한 원장 정보</summary>
+      <Disclosure
+        className={s.technicalDetails}
+        label="대조에 사용한 원장 정보"
+      >
         <Facts
           rows={[
             ["원장 주소", <code>{source.ledger}</code>],
@@ -363,7 +379,7 @@ function ReportSummary({
             ["연결 주소(RPC)", <code>{source.rpcUrl}</code>],
           ]}
         />
-      </details>
+      </Disclosure>
     </>
   );
 }

@@ -3,6 +3,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import {
   openSaleBodySchema,
+  approveBodySchema,
+  type ApproveRequest,
   SALE_ACTIONS,
   saleIdParamsSchema,
   subscribeBodySchema,
@@ -41,7 +43,20 @@ export const saleRoutes: FastifyPluginAsync<{ service: FundService }> = async (
       ),
   );
   // 동작마다 경로를 따로 둔다. API 문서에서 동작별로 설명과 분류(판매 채널·판매사 콘솔)가 다르다.
-  for (const action of SALE_ACTIONS)
+  app.post<{ Params: SaleIdParams; Body: ApproveRequest }>(
+    "/sales/:id/action/approve",
+    {
+      preValidation: async (req) => {
+        if (req.body === undefined) req.body = {};
+      },
+      schema: { params: saleIdParamsSchema, body: approveBodySchema },
+    },
+    async (req) =>
+      service.exclusive(() =>
+        service.action(req.params.id, "approve", req.demoCustomerNo, req.body),
+      ),
+  );
+  for (const action of SALE_ACTIONS.filter((action) => action !== "approve"))
     app.post<{ Params: SaleIdParams }>(
       `/sales/:id/action/${action}`,
       { schema: { params: saleIdParamsSchema } },

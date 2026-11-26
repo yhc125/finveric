@@ -53,11 +53,6 @@
   margin: 4px 0 0;
   border-block-start: 1px solid var(--border);
 }
-.technicalDetails > summary {
-  min-block-size: 44px;
-  padding-block: 12px;
-  font-weight: 600;
-}
 /* 요약 수치 카드는 ui의 .stats와 Stat을 쓴다. 여기서는 열 수만 정한다. */
 .ledgerStats {
   --stat-columns: 5;
@@ -172,88 +167,6 @@
   gap: 24px;
   align-items: start;
   margin-top: 24px;
-}
-.recordSelectTrigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-inline-size: 0;
-  min-block-size: 44px;
-  padding: 10px 12px;
-  border: 1px solid var(--input);
-  border-radius: var(--rounded-control);
-  background: var(--card);
-  text-align: start;
-}
-.recordSelectTrigger[data-placeholder] {
-  color: var(--muted-foreground);
-}
-.recordSelectTrigger[data-state="open"] {
-  border-color: var(--ring);
-}
-.recordSelectTrigger[data-state="open"] svg {
-  rotate: 180deg;
-}
-.recordSelectValue {
-  min-inline-size: 0;
-  overflow-wrap: anywhere;
-}
-.recordSelectContent {
-  z-index: 20;
-  inline-size: var(--radix-select-trigger-width);
-  max-inline-size: var(--radix-select-content-available-width);
-  max-block-size: min(20rem, var(--radix-select-content-available-height));
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--rounded-control);
-  background: var(--card);
-  box-shadow: 0 8px 24px var(--shadow);
-  font-size: var(--type-ui);
-}
-.recordSelectViewport {
-  padding: 4px;
-}
-.recordSelectOption {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 16px;
-  align-items: center;
-  gap: 8px;
-  min-block-size: 44px;
-  padding: 10px;
-  border-radius: var(--rounded-control);
-  outline: 2px solid transparent;
-  outline-offset: -2px;
-  cursor: pointer;
-}
-.recordSelectOption[data-state="checked"] {
-  background: var(--muted);
-}
-.recordSelectOption[data-highlighted] {
-  outline-color: var(--ring);
-  background: var(--primary-surface);
-}
-.recordSelectName {
-  display: block;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.recordSelectMeta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  margin-block-start: 4px;
-  color: var(--muted-foreground);
-}
-.recordSelectCheck {
-  color: var(--primary);
-}
-.recordSelectScroll {
-  display: grid;
-  place-items: center;
-  min-block-size: 28px;
-  color: var(--muted-foreground);
 }
 .upload {
   display: grid;
@@ -450,14 +363,11 @@
   text-decoration: none;
 }
 .compare {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(7rem, 1fr);
   gap: 12px;
   align-items: center;
   font-size: var(--type-ui);
-}
-.compare select {
-  min-width: 140px;
 }
 .hashes {
   display: grid;

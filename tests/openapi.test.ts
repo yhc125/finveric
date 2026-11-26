@@ -17,6 +17,55 @@ import { LEDGER_ERRORS, type LedgerError } from "@finveric/core";
 /** 해요체 끝맺음. API 오류 문장은 합니다체(지시는 "-세요")로 쓴다. */
 const HAEYO = /(어|아|에|해|예|워|돼|봐)요[.?!]|주세요/;
 
+test("검토 사유는 정해진 코드만 받고 기존 빈 승인 요청도 허용한다", async (t) => {
+  const app = await offlineApp(t);
+  const approveUrl = "/api/sales/1/action/approve";
+  const spec = (await app.inject({ url: "/api/openapi.json" })).json();
+  assert.equal(
+    spec.paths["/api/sales/{id}/action/approve"].post.requestBody.required,
+    false,
+  );
+  for (const payload of [
+    { reason: "고객 개인정보가 담긴 자유문" },
+    { reason: "correction_reviewed", memo: "자유문" },
+    { reviewBasis: ["unknown"] },
+    { reviewBasis: ["diagnosis_history", "diagnosis_history"] },
+    { reviewBasis: [] },
+  ]) {
+    const response = await app.inject({
+      method: "POST",
+      url: approveUrl,
+      payload,
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal(response.json().code, "INVALID_REQUEST");
+    assert.doesNotMatch(response.body, /고객 개인정보|자유문/);
+  }
+  for (const payload of [
+    undefined,
+    {},
+    { reason: "correction_reviewed", reviewBasis: ["diagnosis_history"] },
+  ]) {
+    const response = await app.inject({
+      method: "POST",
+      url: approveUrl,
+      ...(payload ? { payload } : {}),
+    });
+    assert.equal(response.statusCode, 404, response.body);
+    assert.equal(response.json().code, "SALE_NOT_FOUND");
+  }
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/customers/customer-1/diagnose",
+    payload: {
+      answers: [1],
+      reassessmentReason: "고객 개인정보가 담긴 자유문",
+    },
+  });
+  assert.equal(response.statusCode, 400, response.body);
+  assert.doesNotMatch(response.body, /고객 개인정보/);
+});
+
 /** printRoutes 결과에서 `METHOD /경로` 목록을 만든다. HEAD·OPTIONS는 Fastify와 CORS가 만든 경로다. */
 function registeredRoutes(tree: string) {
   const routes: string[] = [];

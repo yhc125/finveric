@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type {
   ApiKeyDto,
+  ApproveRequest,
   ConfigDto,
   CustomerDto,
   ProductEntryDto,
@@ -258,8 +259,14 @@ export function App() {
       () => api<RegisterDto>("/register", {}),
       "기본 진단 기준과 상품을 원장에 등록했습니다.",
     );
-  const action = (id: string, name: SaleAction, label: string, done?: string) =>
-    run(label, () => api<SaleDto>(`/sales/${id}/action/${name}`, {}), done);
+  const action = (
+    id: string,
+    name: SaleAction,
+    label: string,
+    done?: string,
+    body: ApproveRequest = {},
+  ) =>
+    run(label, () => api<SaleDto>(`/sales/${id}/action/${name}`, body), done);
 
   return (
     <Shell

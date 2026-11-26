@@ -9,6 +9,7 @@ import type { CustomerDto, ProductEntryDto } from "@finveric/core/api";
 import type { LoadState } from "../../shared/api.ts";
 import { Button } from "../../shared/button.tsx";
 import {
+  Disclosure,
   Badge,
   Facts,
   FilterChip,
@@ -166,8 +167,7 @@ export function Signals({
             </p>
           ))}
       </div>
-      <details>
-        <summary>위험 신호 표시 기준</summary>
+      <Disclosure label="위험 신호 표시 기준">
         <Facts
           rows={[
             [
@@ -189,7 +189,7 @@ export function Signals({
             ],
           ]}
         />
-      </details>
+      </Disclosure>
     </>
   );
 }

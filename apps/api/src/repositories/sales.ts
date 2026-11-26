@@ -1,6 +1,7 @@
 // 리포지토리: 판매 건·진단 원본·등록 기록·처리 기록의 조회·추가·저장, 변경 작업의 잠금.
 // 저장 방식(로컬 파일, Upstash Redis)은 store.ts가 맡는다. 업무 모듈은 저장 방식을 모른다.
 import type { Hex } from "viem";
+import type { ApproveRequest, ReassessmentReason } from "@finveric/core/api";
 import {
   json,
   type MockRecording,
@@ -32,6 +33,7 @@ export type StoredDiagnosis = {
   attempt: number;
   ruleHash: Hex;
   answers: number[];
+  reassessmentReason?: ReassessmentReason;
   salt: string;
   commitment: string;
   txHash?: Hex;
@@ -47,6 +49,10 @@ export type StoredSale = {
   createdAt: string;
   abandonedAt?: string;
   approval?: { attempt: number; signature: Hex };
+  approvalReviews?: (ApproveRequest & {
+    attempt: number;
+    reviewedAt: string;
+  })[];
   explanationSeconds?: number;
   recording?: MockRecording;
   traces: StoredTrace[];

@@ -49,7 +49,7 @@ type OperationObject = {
     description?: string;
     example?: unknown;
   }[];
-  requestBody?: { content: Record<string, MediaType> };
+  requestBody?: { required?: boolean; content: Record<string, MediaType> };
   responses?: Record<string, unknown>;
   security?: Record<string, string[]>[];
 };
@@ -331,6 +331,8 @@ function finish(spec: Spec, publicPaths: ReadonlySet<string>) {
           : PARAMETER_EXAMPLES[parameter.name];
       }
       const body = op.requestBody?.content["application/json"];
+      if (op.operationId === "approveSale" && op.requestBody)
+        op.requestBody.required = false;
       if (body && operation.example !== undefined)
         body.example = operation.example;
     }

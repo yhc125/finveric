@@ -1,3 +1,4 @@
+import { SelectField } from "../../shared/SelectField.tsx";
 import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
@@ -22,6 +23,7 @@ import type {
 } from "@finveric/core/api";
 import { Button } from "../../shared/button.tsx";
 import {
+  Disclosure,
   Badge,
   ConfirmDialog,
   Facts,
@@ -90,10 +92,9 @@ function RuleHead({ entry }: { entry: RuleEntryDto }) {
           ["문항 수", `${rule.questions.length}개`],
         ]}
       />
-      <details>
-        <summary>원장에 등록한 원문 보기</summary>
+      <Disclosure label="원장에 등록한 원문 보기">
         <pre>{canonical(rule)}</pre>
-      </details>
+      </Disclosure>
     </>
   );
 }
@@ -257,21 +258,20 @@ function RuleEditor({
           <fieldset key={q} className={s.questionEdit}>
             <legend>{q + 1}번 문항</legend>
             <div className={s.editRow}>
-              <label>
-                범주
-                <select
-                  value={question.category}
-                  onChange={(e) =>
-                    edit((draft) => {
-                      draft.questions[q].category = e.target.value as Category;
-                    })
-                  }
-                >
-                  {CATEGORIES.map((category) => (
-                    <option key={category}>{category}</option>
-                  ))}
-                </select>
-              </label>
+              <SelectField
+                label="범주"
+                className={ui.fieldInline}
+                value={question.category}
+                options={CATEGORIES.map((category) => ({
+                  value: category,
+                  label: category,
+                }))}
+                onChange={(value) =>
+                  edit((draft) => {
+                    draft.questions[q].category = value as Category;
+                  })
+                }
+              />
               <label className={s.grow}>
                 질문
                 <input
@@ -355,27 +355,30 @@ function RuleEditor({
                           />
                         </td>
                         <td>
-                          <select
-                            aria-label={`${where} 추출 조건`}
+                          <SelectField
+                            label={`${where} 추출 조건`}
+                            hideLabel
+                            className={ui.fieldInline}
                             value={
-                              choice.cap && choice.cap > 1 ? choice.cap : ""
+                              choice.cap && choice.cap > 1
+                                ? String(choice.cap)
+                                : ""
                             }
-                            onChange={(e) =>
+                            options={[
+                              { value: "", label: "제한 없음" },
+                              ...GRADES.slice(1).map((grade) => ({
+                                value: String(grade),
+                                label: `${grade}등급까지`,
+                              })),
+                            ]}
+                            onChange={(value) =>
                               edit((draft) => {
                                 const target = draft.questions[q].choices[o];
-                                if (e.target.value)
-                                  target.cap = Number(e.target.value);
+                                if (value) target.cap = Number(value);
                                 else delete target.cap;
                               })
                             }
-                          >
-                            <option value="">제한 없음</option>
-                            {GRADES.slice(1).map((grade) => (
-                              <option key={grade} value={grade}>
-                                {grade}등급까지
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </td>
                         <td>
                           <input
@@ -480,23 +483,20 @@ function RuleEditor({
         </p>
         <div className={s.editGrid}>
           {PROFILES.map((profile) => (
-            <label key={profile} className={s.field}>
-              {profileName(profile)}
-              <select
-                value={doc.matrix[profile - 1]}
-                onChange={(e) =>
-                  edit((draft) => {
-                    draft.matrix[profile - 1] = Number(e.target.value);
-                  })
-                }
-              >
-                {GRADES.map((grade) => (
-                  <option key={grade} value={grade}>
-                    {limitRange(grade)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField
+              key={profile}
+              label={profileName(profile)}
+              value={String(doc.matrix[profile - 1])}
+              options={GRADES.map((grade) => ({
+                value: String(grade),
+                label: limitRange(grade),
+              }))}
+              onChange={(value) =>
+                edit((draft) => {
+                  draft.matrix[profile - 1] = Number(value);
+                })
+              }
+            />
           ))}
         </div>
       </section>
@@ -539,25 +539,22 @@ function RuleEditor({
           <h2>고객 화면 미리보기</h2>
           <p>답을 골라 판정 결과를 확인합니다. 원장에 기록하지 않습니다.</p>
           {doc.questions.map((question, q) => (
-            <label key={q} className={s.field}>
-              {q + 1}. {question.title || "(질문 없음)"}
-              <select
-                value={preview[q]}
-                onChange={(e) =>
-                  setAnswers(() => {
-                    const next = [...preview];
-                    next[q] = Number(e.target.value);
-                    return next;
-                  })
-                }
-              >
-                {question.choices.map((choice, o) => (
-                  <option key={o} value={o}>
-                    {choice.text || `${o + 1}번 선택지`}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField
+              key={q}
+              label={`${q + 1}. ${question.title || "(질문 없음)"}`}
+              value={String(preview[q])}
+              options={question.choices.map((choice, index) => ({
+                value: String(index),
+                label: choice.text || `${index + 1}번 선택지`,
+              }))}
+              onChange={(value) =>
+                setAnswers(() => {
+                  const next = [...preview];
+                  next[q] = Number(value);
+                  return next;
+                })
+              }
+            />
           ))}
           {evaluation ? (
             <Facts

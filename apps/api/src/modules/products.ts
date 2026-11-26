@@ -95,9 +95,13 @@ export function storedProduct(svc: FundService, id: Hex, version: number) {
 export async function registerProduct(
   svc: FundService,
   document: ProductDocument,
+  expectedVersion?: number,
 ): Promise<ProductEntry> {
   const id = productId(document.code);
-  const version = (await readLatestProductVersion(svc, id)) + 1;
+  const previousVersion = await readLatestProductVersion(svc, id);
+  if (expectedVersion !== undefined && expectedVersion !== previousVersion)
+    throw new CodedError("PRODUCT_EDIT_VERSION_CHANGED");
+  const version = previousVersion + 1;
   const doc: ProductDocument = { ...document, version };
   const errors = validateProduct(doc);
   if (errors.length)

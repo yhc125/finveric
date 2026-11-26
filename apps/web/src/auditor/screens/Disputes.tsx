@@ -15,7 +15,7 @@ import {
   type EvidenceReceipt,
   type OriginalBundle,
 } from "@finveric/core";
-import type { ExportResponse } from "@finveric/core/api";
+import type { ConfigDto, ExportResponse } from "@finveric/core/api";
 import {
   ledgerReadCode,
   type LedgerDiagnosis,
@@ -31,6 +31,7 @@ import {
 import { api, ApiError } from "../../shared/api.ts";
 import { Button } from "../../shared/button.tsx";
 import {
+  Disclosure,
   AccessCodeForm,
   Badge,
   DetailColumn,
@@ -46,7 +47,7 @@ import { dateTime } from "../../shared/format.ts";
 import ui from "../../shared/ui.module.css";
 import local from "../auditor.module.css";
 import { LedgerGate } from "../components.tsx";
-import { RecordSelect } from "../RecordSelect.tsx";
+import { SelectField } from "../../shared/SelectField.tsx";
 import {
   customerPath,
   gradeLabel,
@@ -236,20 +237,29 @@ function SaleLookup({
       let witness = source === "file" ? original : undefined;
       let sellerError: string | undefined;
       if (source === "seller") {
+        const originalNotice =
+          "원본 답변까지 대조하려면 증권사 앱에서 받은 원본 파일을 선택하세요.";
         try {
+          // 접근 코드 없는 공개 시연에서는 서버가 원본 다운로드를 거절한다(DEMO_SCOPE_DENIED).
+          // 거절될 요청을 보내지 않아 브라우저 콘솔에 오류를 남기지 않는다.
+          const config = await api<ConfigDto>("/config");
+          const originalOpen = !(config.publicChannel && !config.requiresToken);
+          if (!originalOpen) sellerError = originalNotice;
           [evidence, witness] = await Promise.all([
             api<ExportResponse["receipt"]>(`/sales/${saleId}/export/receipt`),
-            api<ExportResponse["original"]>(
-              `/sales/${saleId}/export/original`,
-            ).catch((error: unknown) => {
-              if (!(
-                error instanceof ApiError && error.code === "DEMO_SCOPE_DENIED"
-              ))
-                throw error;
-              sellerError =
-                "원본 답변까지 대조하려면 증권사 앱에서 받은 원본 파일을 선택하세요.";
-              return undefined;
-            }),
+            originalOpen
+              ? api<ExportResponse["original"]>(
+                  `/sales/${saleId}/export/original`,
+                ).catch((error: unknown) => {
+                  if (!(
+                    error instanceof ApiError &&
+                    error.code === "DEMO_SCOPE_DENIED"
+                  ))
+                    throw error;
+                  sellerError = originalNotice;
+                  return undefined;
+                })
+              : undefined,
           ]);
           setTokenRequired(false);
         } catch (error) {
@@ -319,7 +329,8 @@ function SaleLookup({
           }}
         >
           <h2>조회할 판매 건</h2>
-          <RecordSelect
+          <SelectField
+            clearable
             label="원장의 판매 건에서 선택"
             placeholder={
               !ledger.snapshot
@@ -685,11 +696,14 @@ function SaleDetails({
         ]}
       />
       {primary.references.length > 0 && (
-        <details>
-          <summary>
-            블록·거래 근거 보기 (
-            {primary.references.length.toLocaleString("ko-KR")}건)
-          </summary>
+        <Disclosure
+          label={
+            <>
+              블록·거래 근거 보기 (
+              {primary.references.length.toLocaleString("ko-KR")}건)
+            </>
+          }
+        >
           <TableScroll label="블록·거래 근거">
             <table>
               <thead>
@@ -717,7 +731,7 @@ function SaleDetails({
               </tbody>
             </table>
           </TableScroll>
-        </details>
+        </Disclosure>
       )}
     </section>
   );
@@ -959,7 +973,8 @@ function CustomerLookup({
           }}
         >
           <h2>조회할 고객</h2>
-          <RecordSelect
+          <SelectField
+            clearable
             label="원장의 고객 가명 ID에서 선택"
             placeholder={
               !snapshot
@@ -1003,8 +1018,8 @@ function CustomerLookup({
             <ShieldCheck size={16} data-icon="end" />
           </Button>
           <p className={s.small}>
-            원장에는 고객 번호와 개인정보가 없습니다. 실제 고객과의 연결 정보는
-            판매사가 분쟁 절차에 따라 제출합니다.
+            원장에는 고객 가명 ID와 진단 결과가 기록됩니다. 고객 번호와 상세
+            답변은 판매사가 보관합니다.
           </p>
         </form>
         <section className={`${s.panel} ${s.pad}`}>

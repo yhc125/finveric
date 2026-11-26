@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Deployment } from "@finveric/core";
 import type { EventRef, LedgerSnapshot } from "@finveric/core/ledger";
 import {
+  Disclosure,
   Badge,
   Count,
   DetailColumn,
@@ -274,8 +275,7 @@ function Summary({
             ]}
           />
           {deployment && (
-            <details className={s.technicalDetails}>
-              <summary>원장 연결 정보</summary>
+            <Disclosure className={s.technicalDetails} label="원장 연결 정보">
               <Facts
                 rows={[
                   ["네트워크 ID", deployment.chainId],
@@ -283,7 +283,7 @@ function Summary({
                   ["연결 주소(RPC)", <code>{deployment.rpcUrl}</code>],
                 ]}
               />
-            </details>
+            </Disclosure>
           )}
         </section>
       </div>

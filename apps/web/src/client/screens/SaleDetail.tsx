@@ -1,6 +1,10 @@
+import { SelectField } from "../../shared/SelectField.tsx";
+import { useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
+import { diagnosisCounts } from "@finveric/core";
 import type {
   CustomerDto,
+  ApproveRequest,
   ProductEntryDto,
   SaleAction,
 } from "@finveric/core/api";
@@ -26,6 +30,7 @@ import {
   type Sale,
 } from "../../shared/sales.ts";
 import ui from "../../shared/ui.module.css";
+import { useKoreanDay } from "../../shared/useKoreanDay.ts";
 import {
   DetailHeading,
   DiagnosisTable,
@@ -115,11 +120,25 @@ export function SaleDetail({
     name: SaleAction,
     label: string,
     done?: string,
+    body?: ApproveRequest,
   ) => Promise<unknown>;
 }) {
   const { saleId } = useParams();
-  const { search } = useLocation();
+  const koreanDay = useKoreanDay();
   const sale = sales.find((entry) => entry.id === saleId);
+  const reviewContext = `${saleId}:${sale?.latestAttempt}`;
+  const [review, setReview] = useState<{
+    context?: string;
+    request: ApproveRequest;
+  }>({ request: {} });
+  const approvalRequest =
+    review.context === reviewContext ? review.request : {};
+  const updateReview = (change: ApproveRequest) =>
+    setReview({
+      context: reviewContext,
+      request: { ...approvalRequest, ...change },
+    });
+  const { search } = useLocation();
   const heading = (
     <>
       <DetailHeading
@@ -158,6 +177,7 @@ export function SaleDetail({
   const knownCustomer =
     !!customer && customer.ref.toLowerCase() === sale.customerRef.toLowerCase();
   const diagnoses = knownCustomer ? customer.diagnoses : [];
+  const counts = diagnosisCounts(diagnoses, koreanDay);
   const usedAttempt = sale.chain?.attempt;
   const usedDiagnosis = diagnoses.find(
     (diagnosis) => diagnosis.attempt === (usedAttempt ?? sale.latestAttempt),
@@ -254,10 +274,81 @@ export function SaleDetail({
               관리자 승인
             </h2>
             <p>
-              3회차 이상 진단한 고객의 청약은 소비자보호 담당이 승인 키로
-              서명해야 원장이 받습니다.
+              FINVERIC 자체 내부통제 정책에 따라 누적 3회차 이상 진단한 고객의
+              청약은 소비자보호 담당의 승인이 필요합니다. 일별 횟수와 별개이며
+              법정 횟수 기준이 아닙니다.
             </p>
+            {knownCustomer && (
+              <p>
+                오늘 진단 {counts.dailyDiagnoses}회 · 그중 재진단{" "}
+                {counts.dailyReassessments}회 (한국 시간)
+              </p>
+            )}
             <Facts rows={[["승인 상태", approvalText(sale)]]} />
+            {awaitingApproval(sale) && (
+              <div className={s.stack}>
+                <SelectField
+                  label="승인 사유 (선택)"
+                  value={approvalRequest.reason ?? ""}
+                  blocked={busy}
+                  options={[
+                    { value: "", label: "선택하지 않음" },
+                    {
+                      value: "correction_reviewed",
+                      label: "응답 정정 사유 검토",
+                    },
+                    {
+                      value: "circumstances_reviewed",
+                      label: "상황 변경 사유 검토",
+                    },
+                    {
+                      value: "reconfirmation_reviewed",
+                      label: "재확인 사유 검토",
+                    },
+                  ]}
+                  onChange={(value) =>
+                    updateReview({
+                      reason: (value || undefined) as ApproveRequest["reason"],
+                    })
+                  }
+                />
+                <fieldset>
+                  <legend>검토 근거 (선택)</legend>
+                  {(
+                    [
+                      ["diagnosis_history", "진단 회차 이력"],
+                      ["risk_signals", "위험 신호"],
+                      ["customer_confirmation", "고객 확인 자료"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <label key={value} className={s.field}>
+                      <input
+                        type="checkbox"
+                        checked={
+                          approvalRequest.reviewBasis?.includes(value) ?? false
+                        }
+                        aria-disabled={busy}
+                        onChange={(event) => {
+                          if (busy) return;
+                          const basis = (
+                            approvalRequest.reviewBasis ?? []
+                          ).filter((item) => item !== value);
+                          if (event.target.checked) basis.push(value);
+                          updateReview({
+                            reviewBasis: basis.length ? basis : undefined,
+                          });
+                        }}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </fieldset>
+                <p className={s.small}>
+                  선택한 사유·근거와 승인 시각은 오프체인에 보관합니다. 검토
+                  사실 자체를 증명하지는 않습니다.
+                </p>
+              </div>
+            )}
             {awaitingApproval(sale) && (
               <Button
                 busy={busy}
@@ -267,6 +358,7 @@ export function SaleDetail({
                     "approve",
                     "관리자 승인 서명을 만들고 있습니다",
                     "관리자 승인을 기록했습니다.",
+                    { ...approvalRequest, expectedAttempt: sale.latestAttempt },
                   );
                   if (approved) focusElement("approval-title");
                 }}

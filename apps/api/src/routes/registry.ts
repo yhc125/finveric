@@ -23,7 +23,9 @@ export const registryRoutes: FastifyPluginAsync<{
     "/products",
     { schema: { body: registerProductBodySchema } },
     async (req) =>
-      service.exclusive(() => service.registerProduct(req.body.document)),
+      service.exclusive(() =>
+        service.registerProduct(req.body.document, req.body.expectedVersion),
+      ),
   );
   app.post("/register", async () =>
     service.exclusive(() => service.register()),

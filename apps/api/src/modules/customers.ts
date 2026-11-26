@@ -76,7 +76,7 @@ export async function customer(
 export async function diagnose(
   svc: FundService,
   customerNo: string,
-  { answers }: DiagnoseRequest,
+  { answers, reassessmentReason }: DiagnoseRequest,
 ): Promise<DiagnosisView> {
   const ref = customerRef(svc, customerNo);
   const rule = await latestRule(svc);
@@ -126,6 +126,7 @@ export async function diagnose(
     attempt,
     ruleHash: rule.hash,
     answers: [...answers],
+    ...(attempt > 1 && reassessmentReason ? { reassessmentReason } : {}),
     salt,
     commitment: proven.signals.commitment.toString(),
   };

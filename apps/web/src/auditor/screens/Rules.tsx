@@ -1,8 +1,10 @@
+import { SelectField } from "../../shared/SelectField.tsx";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { ruleHash, type RuleDocument } from "@finveric/core";
 import type { LedgerRule, LedgerSnapshot } from "@finveric/core/ledger";
 import {
+  Disclosure,
   Badge,
   Count,
   DetailColumn,
@@ -187,29 +189,25 @@ function RuleDetail({
             이 기준으로 기록한 진단은 분쟁 조회에서 불일치로 나옵니다.
           </Notice>
         )}
-        <details>
-          <summary>등록 원문 보기 (이벤트 RuleRegistered)</summary>
+        <Disclosure label="등록 원문 보기 (이벤트 RuleRegistered)">
           <pre>{rule.document}</pre>
-        </details>
+        </Disclosure>
       </section>
       {document && <RuleDocumentView document={document} />}
       <section className={`${s.panel} ${s.pad} ${s.section}`}>
         <div className={s.row}>
           <h2>버전 사이의 차이</h2>
           {previous && (
-            <label className={s.compare}>
-              비교할 버전
-              <select
-                value={previous.version}
-                onChange={(e) => setBase(e.target.value)}
-              >
-                {others.map((entry) => (
-                  <option key={entry.hash} value={entry.version}>
-                    v{entry.version}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField
+              className={s.compare}
+              label="비교할 버전"
+              value={String(previous.version)}
+              options={others.map((entry) => ({
+                value: String(entry.version),
+                label: `v${entry.version}`,
+              }))}
+              onChange={setBase}
+            />
           )}
         </div>
         {!document ? (

@@ -8,6 +8,7 @@ import {
   FIELD,
   canonical,
   computeSignals,
+  diagnosisCounts,
   customerRefFor,
   evaluateRule,
   isProtectedSale,
@@ -21,6 +22,35 @@ import {
 } from "@finveric/core";
 
 const clone = (doc: RuleDocument): RuleDocument => structuredClone(doc);
+
+test("한국 날짜의 진단·재진단 횟수는 누적 회차와 구분한다", () => {
+  const midnight = Date.parse("2026-11-24T00:00:00+09:00") / 1000;
+  const diagnoses = [
+    { attempt: 1, at: midnight - 2 },
+    { attempt: 2, at: midnight - 1 },
+    { attempt: 3, at: midnight },
+  ];
+  assert.deepEqual(diagnosisCounts(diagnoses, midnight), {
+    cumulativeAttempt: 3,
+    dailyDiagnoses: 1,
+    dailyReassessments: 1,
+  });
+  assert.deepEqual(diagnosisCounts(diagnoses, midnight + 86400), {
+    cumulativeAttempt: 3,
+    dailyDiagnoses: 0,
+    dailyReassessments: 0,
+  });
+  assert.deepEqual(diagnosisCounts([{ attempt: 1, at: midnight }], midnight), {
+    cumulativeAttempt: 1,
+    dailyDiagnoses: 1,
+    dailyReassessments: 0,
+  });
+  assert.deepEqual(diagnosisCounts([], midnight), {
+    cumulativeAttempt: 0,
+    dailyDiagnoses: 0,
+    dailyReassessments: 0,
+  });
+});
 type AbiParam = {
   type: string;
   indexed?: boolean;

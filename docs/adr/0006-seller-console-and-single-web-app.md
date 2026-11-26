@@ -1,6 +1,6 @@
 # 0006. client는 판매사 콘솔로 바꾸고, 웹은 Vite 앱 하나로 합친다
 
-2026-11-12 · 결정됨(2026-11-13 구현) · [0001](0001-web-apps-by-audience.md)의 사용자 범위, 루트 경로, 앱 구성을 바꾼다 · client의 판매 채널 메뉴와 고객 검증 화면 위치는 [0007](0007-openapi-and-channel-sample-app.md)이 바꾼다
+2026-11-12 · 결정됨(2026-11-13 구현) · [0001](0001-web-apps-by-audience.md)의 사용자 범위, 루트 경로, 앱 구성을 바꾼다 · client의 판매 채널 메뉴와 고객 검증 화면 위치는 [0007](0007-openapi-and-channel-sample-app.md)이 바꾼다 · 판매 시스템 대체 전제는 [0009](0009-verification-supplement.md)로 대체됨
 
 ## 맥락
 

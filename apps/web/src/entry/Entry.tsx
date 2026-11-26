@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import type { HealthResponse } from "@finveric/core/api";
 import { api, ApiError } from "../shared/api.ts";
-import { Badge } from "../shared/components.tsx";
+import { Disclosure, Badge } from "../shared/components.tsx";
 import { useDeployment } from "../shared/deployment.ts";
 import { networkName } from "../shared/format.ts";
 import {
@@ -133,8 +133,7 @@ export function Entry() {
           </div>
         </dl>
         {deployment && (
-          <details className={s.connection}>
-            <summary>원장 연결 정보</summary>
+          <Disclosure className={s.connection} label="원장 연결 정보">
             <dl>
               <div>
                 <dt>원장 버전</dt>
@@ -147,11 +146,12 @@ export function Entry() {
                 </dd>
               </div>
             </dl>
-          </details>
+          </Disclosure>
         )}
       </section>
       <p className={s.foot}>
-        원장에는 고객 번호나 개인정보를 기록하지 않습니다.
+        기존 판매 시스템에 기록 검증 기능을 더합니다. 상세 응답은 별도 보관하고,
+        공통 기준·설명서와 가명 ID·판정 결과는 원장에 기록합니다.
       </p>
     </main>
   );

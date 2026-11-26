@@ -1,6 +1,24 @@
 // 위험 신호. 판매사 화면과 감독기관 화면이 같은 원장 이벤트로 같은 신호를 계산한다.
 import type { Hex } from "viem";
 
+/** 한 고객의 전체 회차로 계산한다. 한국 날짜의 횟수는 누적 승인 조건을 초기화하지 않는다. */
+export function diagnosisCounts(
+  diagnoses: readonly { attempt: number; at: number }[],
+  now: number,
+) {
+  const koreanDay = (seconds: number) =>
+    Math.floor((seconds + 9 * 3600) / 86400);
+  const today = diagnoses.filter((d) => koreanDay(d.at) === koreanDay(now));
+  return {
+    cumulativeAttempt: diagnoses.reduce(
+      (max, d) => Math.max(max, d.attempt),
+      0,
+    ),
+    dailyDiagnoses: today.length,
+    dailyReassessments: today.filter((d) => d.attempt > 1).length,
+  };
+}
+
 export type SignalKind =
   "repeat" | "rise" | "unsuitable" | "shortExplanation" | "shortInterval";
 export type Signal = {

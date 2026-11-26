@@ -305,6 +305,13 @@ const CODES = {
       "상품 설명서가 새 버전으로 바뀌었습니다. 이 신청을 중단하고 새 버전으로 다시 신청하세요.",
     description: "신청 뒤 그 상품의 새 설명서 버전이 원장에 등록됐습니다.",
   },
+  PRODUCT_EDIT_VERSION_CHANGED: {
+    type: "wrong_state",
+    message:
+      "새 상품 버전이 등록됐습니다. 최신 버전을 확인한 뒤 다시 수정하세요.",
+    description:
+      "수정 요청의 expectedVersion이 원장의 최신 상품 버전과 다릅니다.",
+  },
   // wrong_state
   SALE_ABANDONED: {
     type: "wrong_state",
@@ -324,6 +331,12 @@ const CODES = {
       "승인할 필요가 없는 신청입니다. 3회차 미만 진단한 고객은 승인 없이 청약할 수 있습니다.",
     description:
       "최신 회차가 3 미만인 고객의 신청에 관리자 승인을 요청했습니다.",
+  },
+  APPROVAL_ATTEMPT_CHANGED: {
+    type: "wrong_state",
+    message:
+      "진단 회차가 바뀌었습니다. 판매 건을 새로고침해 최신 회차를 검토하고 승인하세요.",
+    description: "승인 요청의 expectedAttempt가 원장의 최신 회차와 다릅니다.",
   },
   CONFIRM_NOT_ALLOWED: {
     type: "wrong_state",

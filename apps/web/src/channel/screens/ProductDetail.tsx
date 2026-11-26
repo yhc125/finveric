@@ -2,7 +2,12 @@ import { AlertTriangle } from "lucide-react";
 import { DEMO_AMOUNT, type Product } from "@finveric/core";
 import type { ProductEntryDto } from "@finveric/core/api";
 import type { LoadState } from "../../shared/api.ts";
-import { Facts, Heading, Notice } from "../../shared/components.tsx";
+import {
+  Disclosure,
+  Facts,
+  Heading,
+  Notice,
+} from "../../shared/components.tsx";
 import { won } from "../../shared/format.ts";
 import { ExplanationCards } from "../../shared/sale-components.tsx";
 import {
@@ -89,10 +94,9 @@ export function ProductDetail({
           지나야 최종 확인할 수 있어요.
         </Notice>
       )}
-      <details>
-        <summary>핵심 설명 더 보기</summary>
+      <Disclosure label="핵심 설명 더 보기">
         <ExplanationCards cards={[warning, ...rest]} />
-      </details>
+      </Disclosure>
       <p className={s.small}>
         가입 순서: 투자성향 진단 → 적합성 확인 → 핵심 설명 → 청약 → 최종 확인
       </p>

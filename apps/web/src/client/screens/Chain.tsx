@@ -6,6 +6,7 @@ import type { ProductEntryDto, TraceDto } from "@finveric/core/api";
 import type { LoadState } from "../../shared/api.ts";
 import { Button } from "../../shared/button.tsx";
 import {
+  Disclosure,
   Badge,
   Facts,
   FilterChip,
@@ -98,6 +99,9 @@ export function Chain({
           {shown.length ? (
             shown.map((trace) => {
               const [label, tone] = traceStatus(trace);
+              // 날짜와 시각을 두 줄로 쓴다. 다른 날의 기록이 섞여 보이지 않게 한다.
+              const at = dateTime(trace.at);
+              const cut = at.lastIndexOf(" ");
               return (
                 <button
                   key={trace.id}
@@ -105,14 +109,9 @@ export function Chain({
                   className={log?.id === trace.id ? s.logSelected : ""}
                   aria-current={log?.id === trace.id ? "true" : undefined}
                 >
-                  <time>
-                    {new Date(trace.at).toLocaleTimeString("ko-KR", {
-                      timeZone: "Asia/Seoul",
-                      hourCycle: "h23",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                    })}
+                  <time dateTime={trace.at}>
+                    <span>{at.slice(0, cut)}</span>
+                    <span>{at.slice(cut + 1)}</span>
                   </time>
                   <div>
                     <strong>{traceLabel(trace)}</strong>
@@ -217,12 +216,15 @@ export function Chain({
                   <ExternalLink size={14} aria-hidden="true" />
                 </a>
               )}
-              <details>
-                <summary>
-                  {log.txHash && log.status === "confirmed"
-                    ? "거래 영수증 JSON"
-                    : "처리 응답 JSON"}
-                </summary>
+              <Disclosure
+                label={
+                  <>
+                    {log.txHash && log.status === "confirmed"
+                      ? "거래 영수증 JSON"
+                      : "처리 응답 JSON"}
+                  </>
+                }
+              >
                 <pre>
                   {JSON.stringify(
                     log.detail ?? { status: log.status },
@@ -230,7 +232,7 @@ export function Chain({
                     2,
                   )}
                 </pre>
-              </details>
+              </Disclosure>
             </>
           ) : (
             <p>기록을 선택하세요.</p>

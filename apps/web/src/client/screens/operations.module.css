@@ -238,6 +238,8 @@
   box-shadow: inset 3px 0 0 var(--primary);
 }
 .logList time {
+  display: grid;
+  flex: none;
   font-size: var(--type-caption);
   font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);

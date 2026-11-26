@@ -452,6 +452,154 @@ caption.tableCaption {
   font-size: var(--type-ui);
   margin: 20px 0;
 }
+.selectTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--input);
+  border-radius: var(--rounded-control);
+  background: var(--card);
+  text-align: start;
+}
+.selectTrigger[data-placeholder] {
+  color: var(--muted-foreground);
+}
+.selectTrigger[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+.selectTrigger[aria-invalid="true"] {
+  border-color: var(--destructive);
+}
+.selectTrigger[data-state="open"] {
+  border-color: var(--ring);
+}
+.selectTrigger[data-state="open"] svg {
+  rotate: 180deg;
+}
+.selectTrigger > svg,
+.disclosure > summary > svg {
+  flex: none;
+}
+.selectValue {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.selectContent {
+  z-index: 20;
+  inline-size: var(--radix-select-trigger-width);
+  max-inline-size: var(--radix-select-content-available-width);
+  max-block-size: min(20rem, var(--radix-select-content-available-height));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--rounded-control);
+  background: var(--card);
+  box-shadow: 0 8px 24px var(--shadow);
+  font-size: var(--type-ui);
+}
+.selectViewport {
+  padding: 4px;
+  overscroll-behavior: contain;
+}
+.selectOption {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 44px;
+  padding: 10px;
+  border-radius: var(--rounded-control);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  cursor: pointer;
+}
+.selectOption[data-state="checked"] {
+  background: var(--muted);
+}
+.selectOption[data-highlighted] {
+  outline-color: var(--ring);
+  background: var(--primary-surface);
+}
+.selectOption > span {
+  overflow-wrap: anywhere;
+}
+.selectRecordName {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.selectRecordMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-block-start: 4px;
+  color: var(--muted-foreground);
+}
+.selectCheck {
+  color: var(--primary);
+}
+.selectScroll {
+  display: grid;
+  place-items: center;
+  min-block-size: 28px;
+  color: var(--muted-foreground);
+}
+
+.selectField {
+  min-inline-size: 0;
+}
+.fieldInline {
+  display: grid;
+  gap: 6px;
+}
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-block-size: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--rounded-control);
+  background: var(--muted);
+  color: var(--foreground);
+  font-weight: 600;
+  list-style: none;
+}
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure[open] > summary > svg {
+  rotate: 180deg;
+}
+.disclosureContent {
+  min-inline-size: 0;
+  margin-block-start: 12px;
+}
+@media (hover: hover) {
+  .selectTrigger:not(:disabled, [aria-disabled="true"]):hover,
+  .disclosure > summary:hover {
+    border-color: var(--input);
+    background: var(--primary-surface);
+  }
+}
+@media (max-width: 640px) {
+  .selectTrigger {
+    font-size: var(--type-body);
+  }
+}
+@media (forced-colors: active) {
+  .selectOption[data-highlighted] {
+    outline-color: Highlight;
+  }
+}
+
 /*
  * 가로로 스크롤하는 표(TableScroll). 가려진 내용이 있는 가장자리에만 그림자를 그린다.
  * 덮개(local)는 내용과 함께 움직이고 그림자(scroll)는 틀에 붙어 있다. 끝까지 가면 덮개가 그림자를 가린다.

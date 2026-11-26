@@ -128,11 +128,6 @@
   margin: 16px 0 0;
   border-block-start: 1px solid var(--border);
 }
-.connection summary {
-  min-block-size: 44px;
-  padding-block: 12px;
-  font-weight: 600;
-}
 .foot {
   margin-top: 32px;
   color: var(--muted-foreground);
